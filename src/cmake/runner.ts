@@ -193,6 +193,38 @@ export class Runner {
         return this.run(cmd, args, buildDir ?? '.');
     }
 
+    // --------------------------------------------------------
+    // cmake --build <dir> --target A --target B  (multi-target)
+    // --------------------------------------------------------
+    async buildTargets(
+        buildDir: string,
+        targets: string[],
+        config?: string,
+        cmakePath?: string,
+        jobs?: number
+    ): Promise<RunResult> {
+        const cmd = cmakePath || 'cmake';
+        const args = ['--build', buildDir];
+        for (const t of targets) { args.push('--target', t); }
+        if (config) { args.push('--config', config); }
+        if (jobs && jobs > 0) { args.push('-j', String(jobs)); }
+        return this.run(cmd, args, buildDir);
+    }
+
+    async cleanAndBuildTargets(
+        buildDir: string,
+        targets: string[],
+        config?: string,
+        cmakePath?: string
+    ): Promise<RunResult> {
+        const cmd = cmakePath || 'cmake';
+        const args = ['--build', buildDir];
+        for (const t of targets) { args.push('--target', t); }
+        args.push('--clean-first');
+        if (config) { args.push('--config', config); }
+        return this.run(cmd, args, buildDir);
+    }
+
     async clean(buildDir: string, cmakePath?: string): Promise<RunResult> {
         return this.build(buildDir, 'clean', undefined, undefined, cmakePath);
     }
@@ -247,6 +279,25 @@ export class Runner {
     ): Promise<RunResult> {
         const cmd = ctestPath || 'ctest';
         const args = ['--test-dir', buildDir, '-R', `^${testName}$`];
+        if (config) { args.push('-C', config); }
+        if (jobs && jobs > 0) { args.push('-j', String(jobs)); }
+        return this.run(cmd, args, buildDir);
+    }
+
+    /**
+     * Run ctest with a regex filter and --no-tests=ignore.
+     * Used by Impacted Targets to test executables by name pattern,
+     * silently ignoring targets that are not actual CTest tests.
+     */
+    async testByRegex(
+        buildDir: string,
+        regex: string,
+        config?: string,
+        ctestPath?: string,
+        jobs?: number
+    ): Promise<RunResult> {
+        const cmd = ctestPath || 'ctest';
+        const args = ['--test-dir', buildDir, '-R', regex, '--no-tests=ignore'];
         if (config) { args.push('-C', config); }
         if (jobs && jobs > 0) { args.push('-j', String(jobs)); }
         return this.run(cmd, args, buildDir);

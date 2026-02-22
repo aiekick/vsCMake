@@ -12,6 +12,7 @@ import { Kit, scanKits } from './cmake/kit_scanner';
 import { clearMsvcEnvCache } from './cmake/msvc_env';
 import { CMakeDiagnosticsManager } from './cmake/cmake_diagnostics_manager';
 import { CMakeFileDecorationProvider } from './providers/cmake_file_decoration_provider';
+import { ImpactedTargetsProvider } from './providers/impacted_targets_provider';
 
 // ------------------------------------------------------------
 // Types
@@ -30,14 +31,19 @@ let replyWatcher: ReplyWatcher | null = null;
 let statusProvider: ProjectStatusProvider | null = null;
 let outlineProvider: ProjectOutlineProvider | null = null;
 let configProvider: ConfigProvider | null = null;
+let impactedProvider: ImpactedTargetsProvider | null = null;
 let configView: vscode.TreeView<unknown> | null = null;
 let outlineView: vscode.TreeView<unknown> | null = null;
+let impactedView: vscode.TreeView<unknown> | null = null;
 let lastReply: CmakeReply | null = null;
 let currentPresets: ResolvedPresets | null = null;
 let sourceDir: string | null = null;
 let buildDir: string | null = null;
 let taskStatusBar: vscode.StatusBarItem | null = null;
 let availableKits: Kit[] = [];
+let wsState: vscode.Memento | null = null;
+
+const BUILD_DIR_STATE_KEY = 'vsCMake.buildDir';
 
 // ------------------------------------------------------------
 // Activation
@@ -67,9 +73,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }
     }, null, context.subscriptions);
 
+    wsState = context.workspaceState;
+
     statusProvider = new ProjectStatusProvider();
     outlineProvider = new ProjectOutlineProvider();
     configProvider = new ConfigProvider();
+    impactedProvider = new ImpactedTargetsProvider();
 
     // Restore persisted state
     statusProvider.initPersistence(context.workspaceState);
@@ -89,6 +98,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         treeDataProvider: configProvider,
         showCollapseAll: false,
     });
+
+    impactedView = vscode.window.createTreeView('vsCMakeImpacted', {
+        treeDataProvider: impactedProvider,
+        showCollapseAll: false,
+    });
+
+    // Update impacted targets when active editor changes
+    impactedProvider.setActiveFile(
+        vscode.window.activeTextEditor?.document.uri.fsPath ?? null
+    );
+    vscode.window.onDidChangeActiveTextEditor(editor => {
+        impactedProvider!.setActiveFile(editor?.document.uri.fsPath ?? null);
+    }, null, context.subscriptions);
 
     statusProvider.onActiveConfigChanged(cfg => {
         if (lastReply) {
@@ -124,12 +146,26 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ['vsCMake.build', cmdBuild],
         ['vsCMake.buildTarget', cmdBuildTarget],
         ['vsCMake.rebuildTarget', (node: unknown) => cmdRebuildTarget(node)],
+        ['vsCMake.buildImpactedSection', (node: unknown) => cmdBuildImpactedSection(node)],
+        ['vsCMake.rebuildImpactedSection', (node: unknown) => cmdRebuildImpactedSection(node)],
+        ['vsCMake.expandAllImpacted', cmdExpandAllImpacted],
+        ['vsCMake.collapseAllImpacted', cmdCollapseAllImpacted],
+        ['vsCMake.filterImpacted', cmdFilterImpacted],
+        ['vsCMake.clearFilterImpacted', cmdClearFilterImpacted],
+        ['vsCMake.testImpactedTarget', (node: unknown) => cmdTestImpactedTarget(node)],
+        ['vsCMake.testImpactedSection', (node: unknown) => cmdTestImpactedSection(node)],
+        ['vsCMake.filterOutline', cmdFilterOutline],
+        ['vsCMake.clearFilterOutline', cmdClearFilterOutline],
+        ['vsCMake.expandAllOutline', cmdExpandAllOutline],
         ['vsCMake.clean', cmdClean],
         ['vsCMake.install', cmdInstall],
         ['vsCMake.test', cmdTest],
         ['vsCMake.debug', cmdDebug],
         ['vsCMake.launch', cmdLaunch],
         ['vsCMake.refresh', cmdRefresh],
+        ['vsCMake.refreshOutline', cmdRefreshOutline],
+        ['vsCMake.refreshConfig', cmdRefreshConfig],
+        ['vsCMake.refreshImpacted', cmdRefreshImpacted],
         ['vsCMake.editCacheEntry', (e: unknown) => cmdEditCacheEntry(e as CacheEntry)],
         ['vsCMake.filterConfig', cmdFilterConfig],
         ['vsCMake.clearFilterConfig', cmdClearFilterConfig],
@@ -147,7 +183,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         context.subscriptions.push(vscode.commands.registerCommand(id, handler));
     }
 
-    context.subscriptions.push(statusView, outlineView, configView, runner);
+    context.subscriptions.push(statusView, outlineView, configView, impactedView, runner);
 
     // ── Initialize sourceDir ──
     const cfg = vscode.workspace.getConfiguration('vsCMake');
@@ -161,7 +197,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
 
     // ── Initialize buildDir ──
-    const savedBuild = resolveSettingPath(cfg.get<string>('buildDir'));
+    // Priority: settings > persisted state (handles preset-resolved paths)
+    const savedBuild = resolveSettingPath(cfg.get<string>('buildDir'))
+        || wsState.get<string>(BUILD_DIR_STATE_KEY)
+        || null;
     if (savedBuild) {
         await initBuildDir(savedBuild, context);
     } else {
@@ -187,6 +226,7 @@ export function deactivate(): void {
 async function initBuildDir(dir: string, context: vscode.ExtensionContext): Promise<void> {
     replyWatcher?.dispose();
     buildDir = dir;
+    wsState?.update(BUILD_DIR_STATE_KEY, dir);
     apiClient = new ApiClient(dir);
     await apiClient.writeQueries();
 
@@ -236,6 +276,8 @@ async function loadReply(): Promise<void> {
         );
 
         configProvider!.refresh(lastReply.cache);
+
+        impactedProvider!.refresh(lastReply.targets, src);
 
         await refreshAvailableTests();
 
@@ -419,6 +461,7 @@ async function ensureBuildDir(dir: string): Promise<void> {
 
     replyWatcher?.dispose();
     buildDir = dir;
+    wsState?.update(BUILD_DIR_STATE_KEY, dir);
     apiClient = new ApiClient(dir);
     await apiClient.writeQueries();
 
@@ -468,10 +511,13 @@ async function cmdBuild(): Promise<void> {
 async function cmdBuildTarget(node?: unknown): Promise<void> {
     if (!runner || !buildDir) { return; }
     let targetName: string | undefined;
-    if (node && typeof node === 'object' && 'kind' in node &&
-        (node as { kind: string }).kind === 'target') {
-        targetName = (node as unknown as { target: { name: string } }).target.name;
-    } else {
+    if (node && typeof node === 'object' && 'kind' in node) {
+        const kind = (node as { kind: string }).kind;
+        if (kind === 'target' || kind === 'impactedTarget') {
+            targetName = (node as unknown as { target: { name: string } }).target.name;
+        }
+    }
+    if (!targetName) {
         targetName = await pickTarget();
     }
     if (!targetName) { return; }
@@ -485,10 +531,13 @@ async function cmdBuildTarget(node?: unknown): Promise<void> {
 async function cmdRebuildTarget(node?: unknown): Promise<void> {
     if (!runner || !buildDir) { return; }
     let targetName: string | undefined;
-    if (node && typeof node === 'object' && 'kind' in node &&
-        (node as { kind: string }).kind === 'target') {
-        targetName = (node as unknown as { target: { name: string } }).target.name;
-    } else {
+    if (node && typeof node === 'object' && 'kind' in node) {
+        const kind = (node as { kind: string }).kind;
+        if (kind === 'target' || kind === 'impactedTarget') {
+            targetName = (node as unknown as { target: { name: string } }).target.name;
+        }
+    }
+    if (!targetName) {
         targetName = await pickTarget();
     }
     if (!targetName) { return; }
@@ -497,6 +546,165 @@ async function cmdRebuildTarget(node?: unknown): Promise<void> {
     const result = await runner.cleanAndBuildTarget(buildDir, targetName, config || undefined, cmakePath);
     if (!result.success && !result.cancelled) {
         vscode.window.showErrorMessage(`vsCMake: rebuild of '${targetName}' failed (code ${result.code})`);
+    }
+}
+
+async function cmdBuildImpactedSection(node?: unknown): Promise<void> {
+    if (!runner || !buildDir) { return; }
+    const targets = extractSectionTargetNames(node);
+    if (!targets.length) { return; }
+    const cmakePath = getCmakePath();
+    const config = statusProvider?.currentConfig;
+    const jobs = statusProvider?.currentBuildJobs || 0;
+    const result = await runner.buildTargets(buildDir, targets, config || undefined, cmakePath, jobs);
+    if (!result.success && !result.cancelled) {
+        vscode.window.showErrorMessage(`vsCMake: build of section failed (code ${result.code})`);
+    }
+}
+
+async function cmdRebuildImpactedSection(node?: unknown): Promise<void> {
+    if (!runner || !buildDir) { return; }
+    const targets = extractSectionTargetNames(node);
+    if (!targets.length) { return; }
+    const cmakePath = getCmakePath();
+    const config = statusProvider?.currentConfig;
+    const result = await runner.cleanAndBuildTargets(buildDir, targets, config || undefined, cmakePath);
+    if (!result.success && !result.cancelled) {
+        vscode.window.showErrorMessage(`vsCMake: rebuild of section failed (code ${result.code})`);
+    }
+}
+
+function extractSectionTargetNames(node: unknown): string[] {
+    if (!node || typeof node !== 'object') { return []; }
+    if (!('kind' in node) || (node as { kind: string }).kind !== 'impactedSection') { return []; }
+    const section = node as { targets?: { name: string }[] };
+    return (section.targets ?? []).map(t => t.name);
+}
+
+async function cmdExpandAllImpacted(): Promise<void> {
+    if (!impactedProvider || !impactedView) { return; }
+    const roots = impactedProvider.getChildren();
+    for (const node of roots) {
+        if ('kind' in node && node.kind === 'impactedSection') {
+            await (impactedView as vscode.TreeView<unknown>).reveal(node, {
+                expand: true, select: false, focus: false,
+            });
+        }
+    }
+}
+
+async function cmdCollapseAllImpacted(): Promise<void> {
+    await vscode.commands.executeCommand('workbench.actions.treeView.vsCMakeImpacted.collapseAll');
+}
+
+async function cmdFilterImpacted(): Promise<void> {
+    if (!impactedProvider) { return; }
+    const current = impactedProvider.currentFilter;
+    const input = await vscode.window.showInputBox({
+        title: 'Filter impacted targets',
+        prompt: 'Search by target name or type',
+        value: current,
+        placeHolder: 'e.g.: mylib, EXECUTABLE, test...',
+    });
+    if (input === undefined) { return; }
+    if (input === '') {
+        impactedProvider.clearFilter();
+        await vscode.commands.executeCommand('setContext', 'vsCMake.impactedFilterActive', false);
+    } else {
+        impactedProvider.setFilter(input);
+        await vscode.commands.executeCommand('setContext', 'vsCMake.impactedFilterActive', true);
+    }
+}
+
+async function cmdClearFilterImpacted(): Promise<void> {
+    if (!impactedProvider) { return; }
+    impactedProvider.clearFilter();
+    await vscode.commands.executeCommand('setContext', 'vsCMake.impactedFilterActive', false);
+}
+
+// ------------------------------------------------------------
+// Impacted — test commands
+// ------------------------------------------------------------
+
+async function cmdTestImpactedTarget(node?: unknown): Promise<void> {
+    if (!runner || !buildDir) { return; }
+    if (!node || typeof node !== 'object' || !('kind' in node)) { return; }
+    if ((node as { kind: string }).kind !== 'impactedTarget') { return; }
+    const targetName = (node as unknown as { target: { name: string } }).target.name;
+    const ctestPath = getCtestPath();
+    const config = statusProvider?.currentConfig;
+    const jobs = statusProvider?.currentTestJobs || 0;
+    const regex = impactedProvider?.isTestTarget(targetName)
+        ? impactedProvider.getTestRegex(targetName)
+        : escapeRegex(targetName);
+    const result = await runner.testByRegex(buildDir, regex, config || undefined, ctestPath, jobs);
+    if (!result.success && !result.cancelled) {
+        vscode.window.showErrorMessage(`vsCMake: test '${targetName}' failed (code ${result.code})`);
+    }
+}
+
+async function cmdTestImpactedSection(node?: unknown): Promise<void> {
+    if (!runner || !buildDir) { return; }
+    if (!node || typeof node !== 'object') { return; }
+    const sectionId = (node as { sectionId?: string }).sectionId;
+    const targets = extractSectionTargetNames(node);
+    if (!targets.length) { return; }
+    const ctestPath = getCtestPath();
+    const config = statusProvider?.currentConfig;
+    const jobs = statusProvider?.currentTestJobs || 0;
+    const regex = sectionId === 'tests' && impactedProvider
+        ? impactedProvider.getTestSectionRegex(targets)
+        : targets.map(n => escapeRegex(n)).join('|');
+    const result = await runner.testByRegex(buildDir, regex, config || undefined, ctestPath, jobs);
+    if (!result.success && !result.cancelled) {
+        vscode.window.showErrorMessage(`vsCMake: tests failed (code ${result.code})`);
+    }
+}
+
+function escapeRegex(s: string): string {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// ------------------------------------------------------------
+// Outline — filter & expand
+// ------------------------------------------------------------
+
+async function cmdFilterOutline(): Promise<void> {
+    if (!outlineProvider) { return; }
+    const current = outlineProvider.currentFilter;
+    const input = await vscode.window.showInputBox({
+        title: 'Filter outline targets',
+        prompt: 'Search by target name or type',
+        value: current,
+        placeHolder: 'e.g.: mylib, EXECUTABLE, test...',
+    });
+    if (input === undefined) { return; }
+    if (input === '') {
+        outlineProvider.clearFilter();
+        await vscode.commands.executeCommand('setContext', 'vsCMake.outlineFilterActive', false);
+    } else {
+        outlineProvider.setFilter(input);
+        await vscode.commands.executeCommand('setContext', 'vsCMake.outlineFilterActive', true);
+    }
+}
+
+async function cmdClearFilterOutline(): Promise<void> {
+    if (!outlineProvider) { return; }
+    outlineProvider.clearFilter();
+    await vscode.commands.executeCommand('setContext', 'vsCMake.outlineFilterActive', false);
+}
+
+async function cmdExpandAllOutline(): Promise<void> {
+    if (!outlineProvider || !outlineView) { return; }
+    const roots = outlineProvider.getChildren();
+    for (const node of roots) {
+        if ('kind' in node && (node.kind === 'folder' || node.kind === 'target')) {
+            try {
+                await (outlineView as vscode.TreeView<unknown>).reveal(node, {
+                    expand: 2, select: false, focus: false,
+                });
+            } catch { /* node may not be revealable */ }
+        }
     }
 }
 
@@ -537,6 +745,7 @@ async function refreshAvailableTests(): Promise<void> {
     if (!result.success) {
         availableTests = [];
         statusProvider?.setTestCount(0);
+        impactedProvider?.setTestMap(new Map());
         return;
     }
 
@@ -546,8 +755,40 @@ async function refreshAvailableTests(): Promise<void> {
             name: t.name,
             command: t.command ?? [],
         }));
+
+        // Build targetName → testNames[] map from WORKING_DIRECTORY property.
+        // Match WORKING_DIRECTORY against each EXECUTABLE target's paths.build.
+        const buildPathToTarget = new Map<string, string>();
+        if (lastReply && buildDir) {
+            for (const t of lastReply.targets) {
+                if (t.type === 'EXECUTABLE') {
+                    const abs = path.isAbsolute(t.paths.build)
+                        ? path.normalize(t.paths.build)
+                        : path.normalize(path.join(buildDir, t.paths.build));
+                    buildPathToTarget.set(abs.toLowerCase(), t.name);
+                }
+            }
+        }
+        const testsByTarget = new Map<string, string[]>();
+        for (const t of json.tests ?? []) {
+            const wdProp = t.properties?.find(p => p.name === 'WORKING_DIRECTORY');
+            if (wdProp && typeof wdProp.value === 'string') {
+                const normalizedWd = path.normalize(wdProp.value).toLowerCase();
+                const targetName = buildPathToTarget.get(normalizedWd);
+                if (targetName) {
+                    let list = testsByTarget.get(targetName);
+                    if (!list) {
+                        list = [];
+                        testsByTarget.set(targetName, list);
+                    }
+                    list.push(t.name);
+                }
+            }
+        }
+        impactedProvider?.setTestMap(testsByTarget);
     } catch {
         availableTests = [];
+        impactedProvider?.setTestMap(new Map());
     }
 
     statusProvider?.setTestCount(availableTests.length);
@@ -695,6 +936,29 @@ async function cmdCancelTask(): Promise<void> {
 }
 
 async function cmdRefresh(): Promise<void> {
+    await loadReply();
+}
+
+/** Refresh Outline + Impacted from reply files (codemodel + targets) */
+async function cmdRefreshOutline(): Promise<void> {
+    await loadReply();
+}
+
+/** Refresh Config pane from cache file only */
+async function cmdRefreshConfig(): Promise<void> {
+    if (!apiClient) { return; }
+    try {
+        const cache = await apiClient.loadCache();
+        configProvider!.refresh(cache);
+    } catch (err) {
+        vscode.window.showErrorMessage(
+            `vsCMake: cache read error — ${(err as Error).message}`
+        );
+    }
+}
+
+/** Refresh Impacted Targets from reply files (codemodel + targets) */
+async function cmdRefreshImpacted(): Promise<void> {
     await loadReply();
 }
 

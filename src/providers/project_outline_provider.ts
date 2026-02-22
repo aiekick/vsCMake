@@ -25,8 +25,10 @@ interface CmakeFileNode { kind: 'cmakefile'; target: Target; path: string; }
 interface VirtualFolderNode { kind: 'virtualFolder'; name: string; fullPath: string; sources: { source: Source; compileGroup?: CompileGroup }[]; subFolders: VirtualFolderNode[]; target: Target; }
 interface DepNode { kind: 'dependency'; target: Target; }
 interface LibNode { kind: 'library'; target: Target; fragment: string; role: string; }
+interface OutlineFilterNode { kind: 'outlineFilter'; }
 
 type TreeNode =
+    | OutlineFilterNode
     | RootFileNode | FolderNode | TargetNode | TargetCmakeNode
     | SectionNode | ExtrasGroupNode
     | SourceNode | IncludeNode | FlagNode | CmakeFileNode
@@ -54,22 +56,20 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
     private cmakeFiles: string[] = [];
     private rootNodes: TreeNode[] = [];
     private projectSourceDir = '';
+    private filter = '';
+
+    // keep raw data to rebuild on filter change
+    private lastCodemodel: Codemodel | null = null;
+    private lastTargets: Target[] = [];
+    private lastActiveConfig = '';
+    private lastCmakeFiles: string[] = [];
 
     refresh(codemodel: Codemodel, targets: Target[], activeConfig: string, cmakeFiles: string[]): void {
-        this.targetMap.clear();
-        for (const t of targets) { this.targetMap.set(t.id, t); }
-
-        this.projectSourceDir = codemodel.paths.source;
-
-        this.config = codemodel.configurations.find(
-            c => (c.name || '(default)') === activeConfig
-        ) ?? codemodel.configurations[0] ?? null;
-
-        this.cmakeFiles = cmakeFiles;
-        this.rootNodes = this.buildRootNodes();
-        this.parentMap = new WeakMap();
-        this.childrenCache = new WeakMap();
-        this._onDidChangeTreeData.fire();
+        this.lastCodemodel = codemodel;
+        this.lastTargets = targets;
+        this.lastActiveConfig = activeConfig;
+        this.lastCmakeFiles = cmakeFiles;
+        this.rebuildTree();
     }
 
     clear(): void {
@@ -78,6 +78,51 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
         this.cmakeFiles = [];
         this.rootNodes = [];
         this.projectSourceDir = '';
+        this.filter = '';
+        this.lastCodemodel = null;
+        this.lastTargets = [];
+        this.lastActiveConfig = '';
+        this.lastCmakeFiles = [];
+        this.parentMap = new WeakMap();
+        this.childrenCache = new WeakMap();
+        this._onDidChangeTreeData.fire();
+    }
+
+    // ------------------------------------------------------------
+    // Filter
+    // ------------------------------------------------------------
+
+    setFilter(pattern: string): void {
+        this.filter = pattern.toLowerCase();
+        this.rebuildTree();
+    }
+
+    clearFilter(): void {
+        this.filter = '';
+        this.rebuildTree();
+    }
+
+    get currentFilter(): string {
+        return this.filter;
+    }
+
+    get hasFilter(): boolean {
+        return this.filter.length > 0;
+    }
+
+    private rebuildTree(): void {
+        if (!this.lastCodemodel) { return; }
+        this.targetMap.clear();
+        for (const t of this.lastTargets) { this.targetMap.set(t.id, t); }
+
+        this.projectSourceDir = this.lastCodemodel.paths.source;
+
+        this.config = this.lastCodemodel.configurations.find(
+            c => (c.name || '(default)') === this.lastActiveConfig
+        ) ?? this.lastCodemodel.configurations[0] ?? null;
+
+        this.cmakeFiles = this.lastCmakeFiles;
+        this.rootNodes = this.buildRootNodes();
         this.parentMap = new WeakMap();
         this.childrenCache = new WeakMap();
         this._onDidChangeTreeData.fire();
@@ -89,6 +134,7 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
 
     getTreeItem(node: TreeNode): vscode.TreeItem {
         switch (node.kind) {
+            case 'outlineFilter': return this.outlineFilterItem();
             case 'rootFile': return this.rootFileItem(node);
             case 'folder': return this.folderItem(node);
             case 'target': return this.targetItem(node);
@@ -111,6 +157,7 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
     getChildren(node?: TreeNode): TreeNode[] {
         if (!this.config) { return []; }
         if (!node) { return this.rootNodes; }
+        if (node.kind === 'outlineFilter') { return []; }
 
         // Use cache if available
         if (this.childrenCache.has(node)) { return this.childrenCache.get(node)!; }
@@ -161,12 +208,23 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
     private buildRootNodes(): TreeNode[] {
         if (!this.config) { return []; }
 
+        const filterNode: OutlineFilterNode = { kind: 'outlineFilter' };
+
         const seen = new Set<string>();
-        const targets = this.config.targets
+        let targets = this.config.targets
             .filter(ref => { if (seen.has(ref.id)) { return false; } seen.add(ref.id); return true; })
             .map(ref => this.targetMap.get(ref.id))
             .filter((t): t is Target => t !== undefined)
             .filter(t => !this.isExcluded(t));
+
+        // Apply filter on target name
+        if (this.filter) {
+            const f = this.filter;
+            targets = targets.filter(t =>
+                t.name.toLowerCase().includes(f) ||
+                t.type.toLowerCase().includes(f)
+            );
+        }
 
         const withFolder = targets.filter(t => t.folder?.name);
         const withoutFolder = targets.filter(t => !t.folder?.name);
@@ -175,6 +233,7 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
         this.pruneEmptyFolders(folderNodes);
 
         return [
+            filterNode,
             ...folderNodes,
             ...withoutFolder.map(t => ({ kind: 'target' as const, target: t })),
         ];
@@ -494,6 +553,20 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
     // ------------------------------------------------------------
     // TreeItems
     // ------------------------------------------------------------
+
+    private outlineFilterItem(): vscode.TreeItem {
+        const label = this.filter
+            ? `Filter: ${this.filter}`
+            : 'Filter: (none)';
+        const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
+        item.iconPath = new vscode.ThemeIcon('search');
+        item.contextValue = this.filter ? 'outlineFilterActive' : 'outlineFilter';
+        item.command = {
+            command: 'vsCMake.filterOutline',
+            title: 'Filter',
+        };
+        return item;
+    }
 
     private rootFileItem(node: RootFileNode): vscode.TreeItem {
         const uri = vscode.Uri.file(node.filePath);

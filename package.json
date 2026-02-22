@@ -89,7 +89,7 @@
         {
           "id": "vsCMakeStatus",
           "name": "Project Status",
-          "icon": "$(dashboard)"
+          "icon": "$(project)"
         },
         {
           "id": "vsCMakeOutline",
@@ -100,6 +100,11 @@
           "id": "vsCMakeConfig",
           "name": "Configuration",
           "icon": "$(tools)"
+        },
+        {
+          "id": "vsCMakeImpacted",
+          "name": "Impacted Targets",
+          "icon": "$(target)"
         }
       ]
     },
@@ -256,6 +261,24 @@
       },
       {
         "command": "vsCMake.refresh",
+        "title": "Refresh all",
+        "category": "CMake",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "vsCMake.refreshOutline",
+        "title": "Refresh",
+        "category": "CMake",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "vsCMake.refreshConfig",
+        "title": "Refresh",
+        "category": "CMake",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "vsCMake.refreshImpacted",
         "title": "Refresh",
         "category": "CMake",
         "icon": "$(refresh)"
@@ -337,6 +360,72 @@
         "title": "Open the extension settings",
         "category": "CMake",
         "icon": "$(gear)"
+      },
+      {
+        "command": "vsCMake.buildImpactedSection",
+        "title": "Build all targets in section",
+        "category": "CMake",
+        "icon": "$(build)"
+      },
+      {
+        "command": "vsCMake.rebuildImpactedSection",
+        "title": "Rebuild all targets in section (clean + build)",
+        "category": "CMake",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "vsCMake.expandAllImpacted",
+        "title": "Expand all",
+        "category": "CMake",
+        "icon": "$(expand-all)"
+      },
+      {
+        "command": "vsCMake.collapseAllImpacted",
+        "title": "Collapse all",
+        "category": "CMake",
+        "icon": "$(collapse-all)"
+      },
+      {
+        "command": "vsCMake.filterImpacted",
+        "title": "Filter targets",
+        "category": "CMake",
+        "icon": "$(search)"
+      },
+      {
+        "command": "vsCMake.clearFilterImpacted",
+        "title": "Clear filter",
+        "category": "CMake",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "vsCMake.filterOutline",
+        "title": "Filter targets",
+        "category": "CMake",
+        "icon": "$(search)"
+      },
+      {
+        "command": "vsCMake.clearFilterOutline",
+        "title": "Clear filter",
+        "category": "CMake",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "vsCMake.expandAllOutline",
+        "title": "Expand all",
+        "category": "CMake",
+        "icon": "$(expand-all)"
+      },
+      {
+        "command": "vsCMake.testImpactedTarget",
+        "title": "Run test",
+        "category": "CMake",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "vsCMake.testImpactedSection",
+        "title": "Run all tests in section",
+        "category": "CMake",
+        "icon": "$(beaker)"
       }
     ],
     "menus": {
@@ -362,9 +451,24 @@
           "group": "navigation@5"
         },
         {
-          "command": "vsCMake.refresh",
+          "command": "vsCMake.filterOutline",
           "when": "view == vsCMakeOutline",
           "group": "navigation@1"
+        },
+        {
+          "command": "vsCMake.clearFilterOutline",
+          "when": "view == vsCMakeOutline && vsCMake.outlineFilterActive",
+          "group": "navigation@2"
+        },
+        {
+          "command": "vsCMake.expandAllOutline",
+          "when": "view == vsCMakeOutline",
+          "group": "navigation@3"
+        },
+        {
+          "command": "vsCMake.refreshOutline",
+          "when": "view == vsCMakeOutline",
+          "group": "navigation@4"
         },
         {
           "command": "vsCMake.filterConfig",
@@ -387,8 +491,33 @@
           "group": "navigation@4"
         },
         {
-          "command": "vsCMake.refresh",
+          "command": "vsCMake.refreshConfig",
           "when": "view == vsCMakeConfig",
+          "group": "navigation@5"
+        },
+        {
+          "command": "vsCMake.filterImpacted",
+          "when": "view == vsCMakeImpacted",
+          "group": "navigation@1"
+        },
+        {
+          "command": "vsCMake.clearFilterImpacted",
+          "when": "view == vsCMakeImpacted && vsCMake.impactedFilterActive",
+          "group": "navigation@2"
+        },
+        {
+          "command": "vsCMake.expandAllImpacted",
+          "when": "view == vsCMakeImpacted",
+          "group": "navigation@3"
+        },
+        {
+          "command": "vsCMake.collapseAllImpacted",
+          "when": "view == vsCMakeImpacted",
+          "group": "navigation@4"
+        },
+        {
+          "command": "vsCMake.refreshImpacted",
+          "when": "view == vsCMakeImpacted",
           "group": "navigation@5"
         }
       ],
@@ -509,6 +638,36 @@
           "group": "inline@2"
         },
         {
+          "command": "vsCMake.buildImpactedSection",
+          "when": "view == vsCMakeImpacted && viewItem =~ /^impactedSection_(libraries|executables|tests)/",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.rebuildImpactedSection",
+          "when": "view == vsCMakeImpacted && viewItem =~ /^impactedSection_(libraries|executables|tests)/",
+          "group": "inline@2"
+        },
+        {
+          "command": "vsCMake.testImpactedSection",
+          "when": "view == vsCMakeImpacted && viewItem =~ /^impactedSection_(executables|tests)/",
+          "group": "inline@3"
+        },
+        {
+          "command": "vsCMake.buildTarget",
+          "when": "view == vsCMakeImpacted && viewItem =~ /^impactedTarget_/",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.rebuildTarget",
+          "when": "view == vsCMakeImpacted && viewItem =~ /^impactedTarget_/",
+          "group": "inline@2"
+        },
+        {
+          "command": "vsCMake.testImpactedTarget",
+          "when": "view == vsCMakeImpacted && viewItem =~ /^impactedTarget_(EXECUTABLE|TEST)/",
+          "group": "inline@3"
+        },
+        {
           "command": "vsCMake.editCacheEntry",
           "when": "view == vsCMakeConfig && viewItem == cmakeCacheEntry",
           "group": "inline@1"
@@ -532,6 +691,26 @@
           "command": "vsCMake.revealDependency",
           "when": "view == vsCMakeOutline && viewItem == outlineDependency",
           "group": "2_nav@1"
+        },
+        {
+          "command": "vsCMake.filterOutline",
+          "when": "view == vsCMakeOutline && viewItem =~ /^outlineFilter/",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.clearFilterOutline",
+          "when": "view == vsCMakeOutline && viewItem == outlineFilterActive",
+          "group": "inline@2"
+        },
+        {
+          "command": "vsCMake.filterImpacted",
+          "when": "view == vsCMakeImpacted && viewItem =~ /^impactedFilter/",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.clearFilterImpacted",
+          "when": "view == vsCMakeImpacted && viewItem == impactedFilterActive",
+          "group": "inline@2"
         },
         {
           "command": "vsCMake.filterConfig",
