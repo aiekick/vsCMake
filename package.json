@@ -1,0 +1,593 @@
+{
+  "name": "vscmake",
+  "displayName": "vsCMake",
+  "description": "CMake integration via File-Based API — no CMakeLists parsing",
+  "version": "0.1.0",
+  "publisher": "aiekick",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aiekick/vscmake"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "check": "tsc --noEmit"
+  },
+  "contributes": {
+    "configuration": {
+      "title": "vsCMake",
+      "properties": {
+        "vsCMake.sourceDir": {
+          "type": "string",
+          "default": "${workspaceFolder}",
+          "description": "Path to the CMake source folder"
+        },
+        "vsCMake.buildDir": {
+          "type": "string",
+          "default": "${workspaceFolder}/build",
+          "description": "Path to the CMake build folder"
+        },
+        "vsCMake.cmakePath": {
+          "type": "string",
+          "default": "cmake",
+          "description": "Path to the cmake executable"
+        },
+        "vsCMake.ctestPath": {
+          "type": "string",
+          "default": "ctest",
+          "description": "Path to the ctest executable"
+        },
+        "vsCMake.cpackPath": {
+          "type": "string",
+          "default": "cpack",
+          "description": "Path to the cpack executable"
+        },
+        "vsCMake.clearOutputBeforeRun": {
+          "type": "boolean",
+          "default": true,
+          "description": "Clear output before each CMake command"
+        },
+        "vsCMake.showJobsOption": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show Jobs option (parallelism) in Build and Test sections"
+        },
+        "vsCMake.defaultJobs": {
+          "type": "integer",
+          "default": 0,
+          "description": "Default number of jobs (0 = let CMake/CTest decide)"
+        },
+        "vsCMake.colorizeOutput": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable syntax highlighting in the vsCMake output panel"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "vsCMake",
+          "title": "vsCMake",
+          "icon": "images/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "vsCMake": [
+        {
+          "id": "vsCMakeStatus",
+          "name": "Project Status",
+          "icon": "$(dashboard)"
+        },
+        {
+          "id": "vsCMakeOutline",
+          "name": "Project Outline",
+          "icon": "$(list-tree)"
+        },
+        {
+          "id": "vsCMakeConfig",
+          "name": "Configuration",
+          "icon": "$(settings-gear)"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "vsCMake.deleteCacheAndReconfigure",
+        "title": "Delete cache and reconfigure",
+        "category": "CMake",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "vsCMake.cancelTask",
+        "title": "Cancel running task",
+        "category": "CMake",
+        "icon": "$(stop-circle)"
+      },
+      {
+        "command": "vsCMake.pick_folder",
+        "title": "Change source folder",
+        "category": "CMake",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "vsCMake.pick_configChoice",
+        "title": "Change CMAKE_BUILD_TYPE",
+        "category": "CMake",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "vsCMake.pick_configure",
+        "title": "Change configure preset",
+        "category": "CMake",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "vsCMake.pick_buildConfig",
+        "title": "Change build configuration",
+        "category": "CMake",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "vsCMake.pick_build",
+        "title": "Change build preset",
+        "category": "CMake",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "vsCMake.pick_buildTarget",
+        "title": "Change build target",
+        "category": "CMake",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "vsCMake.pick_buildJobs",
+        "title": "Change number of jobs (build)",
+        "category": "CMake",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "vsCMake.pick_test",
+        "title": "Change test preset",
+        "category": "CMake",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "vsCMake.pick_testTarget",
+        "title": "Change test to run",
+        "category": "CMake",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "vsCMake.pick_testJobs",
+        "title": "Change number of jobs (test)",
+        "category": "CMake",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "vsCMake.pick_package",
+        "title": "Change package target",
+        "category": "CMake",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "vsCMake.pick_debug",
+        "title": "Change debug target",
+        "category": "CMake",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "vsCMake.pick_launch",
+        "title": "Change launch target",
+        "category": "CMake",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "vsCMake.selectBuildDir",
+        "title": "Select build folder",
+        "category": "CMake",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "vsCMake.configure",
+        "title": "Configure",
+        "category": "CMake",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "vsCMake.build",
+        "title": "Build",
+        "category": "CMake",
+        "icon": "$(play)"
+      },
+      {
+        "command": "vsCMake.buildTarget",
+        "title": "Build target",
+        "category": "CMake",
+        "icon": "$(play)"
+      },
+      {
+        "command": "vsCMake.rebuildTarget",
+        "title": "Rebuild target (clean + build)",
+        "category": "CMake",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "vsCMake.clean",
+        "title": "Clean",
+        "category": "CMake",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "vsCMake.install",
+        "title": "Install",
+        "category": "CMake",
+        "icon": "$(desktop-download)"
+      },
+      {
+        "command": "vsCMake.test",
+        "title": "Test",
+        "category": "CMake",
+        "icon": "$(beaker)"
+      },
+      {
+        "command": "vsCMake.debug",
+        "title": "Debug",
+        "category": "CMake",
+        "icon": "$(debug-alt)"
+      },
+      {
+        "command": "vsCMake.launch",
+        "title": "Launch",
+        "category": "CMake",
+        "icon": "$(run-all)"
+      },
+      {
+        "command": "vsCMake.refresh",
+        "title": "Refresh",
+        "category": "CMake",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "vsCMake.filterConfig",
+        "title": "Filter variables",
+        "category": "CMake",
+        "icon": "$(search)"
+      },
+      {
+        "command": "vsCMake.clearFilterConfig",
+        "title": "Clear filter",
+        "category": "CMake",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "vsCMake.expandAllConfig",
+        "title": "Expand all",
+        "category": "CMake",
+        "icon": "$(expand-all)"
+      },
+      {
+        "command": "vsCMake.collapseAllConfig",
+        "title": "Collapse all",
+        "category": "CMake",
+        "icon": "$(collapse-all)"
+      },
+      {
+        "command": "vsCMake.editCacheEntry",
+        "title": "Edit variable",
+        "category": "CMake",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "vsCMake.openFile",
+        "title": "Open file",
+        "category": "CMake",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "vsCMake.openLocation",
+        "title": "Go to definition",
+        "category": "CMake",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "vsCMake.copyToClipboard",
+        "title": "Copy to clipboard",
+        "category": "CMake",
+        "icon": "$(clippy)"
+      },
+      {
+        "command": "vsCMake.copySectionToClipboard",
+        "title": "Copy entire section",
+        "category": "CMake",
+        "icon": "$(clippy)"
+      },
+      {
+        "command": "vsCMake.revealDependency",
+        "title": "Show in outline",
+        "category": "CMake",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "vsCMake.pick_kit",
+        "title": "Change kit (compiler)",
+        "category": "CMake",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "vsCMake.scanKits",
+        "title": "Scan available compilers",
+        "category": "CMake",
+        "icon": "$(search)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "vsCMake.selectBuildDir",
+          "when": "view == vsCMakeStatus",
+          "group": "navigation@1"
+        },
+        {
+          "command": "vsCMake.deleteCacheAndReconfigure",
+          "when": "view == vsCMakeStatus",
+          "group": "navigation@2"
+        },
+        {
+          "command": "vsCMake.configure",
+          "when": "view == vsCMakeStatus",
+          "group": "navigation@3"
+        },
+        {
+          "command": "vsCMake.build",
+          "when": "view == vsCMakeStatus",
+          "group": "navigation@4"
+        },
+        {
+          "command": "vsCMake.clean",
+          "when": "view == vsCMakeStatus",
+          "group": "navigation@5"
+        },
+        {
+          "command": "vsCMake.refresh",
+          "when": "view == vsCMakeStatus",
+          "group": "navigation@6"
+        },
+        {
+          "command": "vsCMake.refresh",
+          "when": "view == vsCMakeOutline",
+          "group": "navigation@1"
+        },
+        {
+          "command": "vsCMake.filterConfig",
+          "when": "view == vsCMakeConfig",
+          "group": "navigation@1"
+        },
+        {
+          "command": "vsCMake.clearFilterConfig",
+          "when": "view == vsCMakeConfig && vsCMake.configFilterActive",
+          "group": "navigation@2"
+        },
+        {
+          "command": "vsCMake.collapseAllConfig",
+          "when": "view == vsCMakeConfig",
+          "group": "navigation@3"
+        },
+        {
+          "command": "vsCMake.expandAllConfig",
+          "when": "view == vsCMakeConfig",
+          "group": "navigation@4"
+        },
+        {
+          "command": "vsCMake.refresh",
+          "when": "view == vsCMakeConfig",
+          "group": "navigation@5"
+        },
+        {
+          "command": "vsCMake.scanKits",
+          "when": "view == vsCMakeStatus",
+          "group": "navigation@0"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "vsCMake.selectBuildDir",
+          "when": "view == vsCMakeStatus && viewItem == statusSection_folder",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.pick_folder",
+          "when": "view == vsCMakeStatus && viewItem == statusValue_folder",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.pick_configChoice",
+          "when": "view == vsCMakeStatus && viewItem == statusValue_configChoice",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.configure",
+          "when": "view == vsCMakeStatus && viewItem == statusSection_configure",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.pick_configure",
+          "when": "view == vsCMakeStatus && viewItem == statusValue_configure",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.build",
+          "when": "view == vsCMakeStatus && viewItem == statusSection_build",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.clean",
+          "when": "view == vsCMakeStatus && viewItem == statusSection_build",
+          "group": "inline@2"
+        },
+        {
+          "command": "vsCMake.pick_buildConfig",
+          "when": "view == vsCMakeStatus && viewItem == statusValue_buildConfig",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.pick_build",
+          "when": "view == vsCMakeStatus && viewItem == statusValue_build",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.pick_buildTarget",
+          "when": "view == vsCMakeStatus && viewItem == statusValue_buildTarget",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.pick_buildJobs",
+          "when": "view == vsCMakeStatus && viewItem == statusValue_buildJobs",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.test",
+          "when": "view == vsCMakeStatus && viewItem == statusSection_test",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.pick_test",
+          "when": "view == vsCMakeStatus && viewItem == statusValue_test",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.pick_testTarget",
+          "when": "view == vsCMakeStatus && viewItem == statusValue_testTarget",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.pick_testJobs",
+          "when": "view == vsCMakeStatus && viewItem == statusValue_testJobs",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.install",
+          "when": "view == vsCMakeStatus && viewItem == statusSection_package",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.pick_package",
+          "when": "view == vsCMakeStatus && viewItem == statusValue_package",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.debug",
+          "when": "view == vsCMakeStatus && viewItem == statusSection_debug",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.pick_debug",
+          "when": "view == vsCMakeStatus && viewItem == statusValue_debug",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.launch",
+          "when": "view == vsCMakeStatus && viewItem == statusSection_launch",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.pick_launch",
+          "when": "view == vsCMakeStatus && viewItem == statusValue_launch",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.buildTarget",
+          "when": "view == vsCMakeOutline && viewItem =~ /^outlineTarget_/",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.rebuildTarget",
+          "when": "view == vsCMakeOutline && viewItem =~ /^outlineTarget_/",
+          "group": "inline@2"
+        },
+        {
+          "command": "vsCMake.editCacheEntry",
+          "when": "view == vsCMakeConfig && viewItem == cmakeCacheEntry",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.copyToClipboard",
+          "when": "view == vsCMakeOutline && viewItem == outlineCopyable",
+          "group": "1_copy@1"
+        },
+        {
+          "command": "vsCMake.copySectionToClipboard",
+          "when": "view == vsCMakeOutline && viewItem =~ /^outlineExtras_/",
+          "group": "1_copy@1"
+        },
+        {
+          "command": "vsCMake.copyToClipboard",
+          "when": "view == vsCMakeOutline && viewItem == outlineDependency",
+          "group": "1_copy@1"
+        },
+        {
+          "command": "vsCMake.revealDependency",
+          "when": "view == vsCMakeOutline && viewItem == outlineDependency",
+          "group": "2_nav@1"
+        },
+        {
+          "command": "vsCMake.filterConfig",
+          "when": "view == vsCMakeConfig && viewItem =~ /^cmakeCacheFilter/",
+          "group": "inline@1"
+        },
+        {
+          "command": "vsCMake.clearFilterConfig",
+          "when": "view == vsCMakeConfig && viewItem == cmakeCacheFilterActive",
+          "group": "inline@2"
+        },
+        {
+          "command": "vsCMake.pick_kit",
+          "when": "view == vsCMakeStatus && viewItem == statusValue_kitName",
+          "group": "inline@1"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "vsCMake.configure",
+        "key": "ctrl+shift+F7"
+      },
+      {
+        "command": "vsCMake.build",
+        "key": "ctrl+F7"
+      }
+    ],
+    "languages": [
+      {
+        "id": "vscmake-output",
+        "mimetypes": [
+          "text/x-vscmake-output"
+        ]
+      }
+    ],
+    "grammars": [
+      {
+        "language": "vscmake-output",
+        "scopeName": "source.vscmake-output",
+        "path": "./src/syntaxes/output_coloration.tmLanguage.json"
+      }
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.0.0"
+  }
+}
