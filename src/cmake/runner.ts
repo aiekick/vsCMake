@@ -64,6 +64,12 @@ export class Runner {
 
     dispose(): void { this.channel.dispose(); }
 
+    /** Write a message to the output channel (visible to the user). */
+    logToOutput(message: string): void {
+        this.channel.appendLine(message);
+        this.channel.show(true);
+    }
+
     getRunningTasks(): RunningTask[] { return [...this.tasks.values()]; }
 
     cancelAll(): void {

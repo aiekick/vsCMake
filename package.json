@@ -53,6 +53,11 @@
           "default": "cpack",
           "description": "Path to the cpack executable"
         },
+        "vsCMake.preventInSourceBuild": {
+          "type": "boolean",
+          "default": true,
+          "description": "Prevent configuring when the build directory is the same as the source directory (in-source build)"
+        },
         "vsCMake.clearOutputBeforeRun": {
           "type": "boolean",
           "default": true,

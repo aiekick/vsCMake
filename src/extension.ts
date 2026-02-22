@@ -400,9 +400,12 @@ async function cmdConfigure(): Promise<void> {
         // The preset can override the buildDir
         const presetBuildDir = resolvePresetBuildDir(presetName, src);
         if (presetBuildDir) {
+            if (checkInSourceBuild(presetBuildDir, src)) { return; }
             await ensureBuildDir(presetBuildDir);
         } else if (!buildDir) {
             vscode.window.showWarningMessage('vsCMake: no build folder defined (neither in settings nor in preset).');
+            return;
+        } else if (checkInSourceBuild(buildDir, src)) {
             return;
         }
 
@@ -415,6 +418,7 @@ async function cmdConfigure(): Promise<void> {
             vscode.window.showWarningMessage('vsCMake: select a build folder first.');
             return;
         }
+        if (checkInSourceBuild(buildDir, src)) { return; }
         const defs: Record<string, string> = {};
         const config = statusProvider?.currentConfig;
         if (config) {
@@ -1120,6 +1124,31 @@ function resolveSettingPath(value: string | undefined): string | null {
     }
     if (value.includes('${workspaceFolder}')) { return null; }
     return value;
+}
+
+/** Returns true if both paths resolve to the same directory. */
+function isSameDirectory(a: string, b: string): boolean {
+    return path.resolve(a) === path.resolve(b);
+}
+
+/**
+ * Checks if an in-source build should be blocked (build dir == source dir).
+ * Returns true if the build was rejected (caller should abort).
+ * Respects the vsCMake.preventInSourceBuild setting.
+ */
+function checkInSourceBuild(effectiveBuildDir: string, src: string): boolean {
+    if (!vscode.workspace.getConfiguration('vsCMake').get<boolean>('preventInSourceBuild', true)) {
+        return false;
+    }
+    if (!isSameDirectory(effectiveBuildDir, src)) {
+        return false;
+    }
+    const msg = `In-source build rejected: build directory is the same as source directory (${src}). `
+        + 'Please set a different build directory in settings (vsCMake.buildDir) or in your CMake preset (binaryDir). '
+        + 'You can disable this check with the setting vsCMake.preventInSourceBuild.';
+    runner?.logToOutput(`✗ ${msg}`);
+    vscode.window.showErrorMessage(`vsCMake: ${msg}`);
+    return true;
 }
 
 async function pickSourceDir(): Promise<string | null> {
