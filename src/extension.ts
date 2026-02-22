@@ -140,6 +140,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ['vsCMake.copyToClipboard', (...args: unknown[]) => cmdCopyToClipboard(args)],
         ['vsCMake.copySectionToClipboard', (...args: unknown[]) => cmdCopySectionToClipboard(args)],
         ['vsCMake.revealDependency', (node: unknown) => cmdRevealDependency(node)],
+        ['vsCMake.openSettings', cmdOpenSettings],
     ];
 
     for (const [id, handler] of cmds) {
@@ -695,6 +696,13 @@ async function cmdCancelTask(): Promise<void> {
 
 async function cmdRefresh(): Promise<void> {
     await loadReply();
+}
+
+async function cmdOpenSettings(): Promise<void> {
+    await vscode.commands.executeCommand(
+        'workbench.action.openSettings',
+        '@ext:aiekick.vscmake'
+    );
 }
 
 async function cmdEditCacheEntry(entry: CacheEntry): Promise<void> {

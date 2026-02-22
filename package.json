@@ -94,12 +94,12 @@
         {
           "id": "vsCMakeOutline",
           "name": "Project Outline",
-          "icon": "$(list-tree)"
+          "icon": "$(checklist)"
         },
         {
           "id": "vsCMakeConfig",
           "name": "Configuration",
-          "icon": "$(settings-gear)"
+          "icon": "$(tools)"
         }
       ]
     },
@@ -108,7 +108,7 @@
         "command": "vsCMake.deleteCacheAndReconfigure",
         "title": "Delete cache and reconfigure",
         "category": "CMake",
-        "icon": "$(trash)"
+        "icon": "$(clear-all)"
       },
       {
         "command": "vsCMake.cancelTask",
@@ -204,19 +204,19 @@
         "command": "vsCMake.configure",
         "title": "Configure",
         "category": "CMake",
-        "icon": "$(gear)"
+        "icon": "$(tools)"
       },
       {
         "command": "vsCMake.build",
         "title": "Build",
         "category": "CMake",
-        "icon": "$(play)"
+        "icon": "$(build)"
       },
       {
         "command": "vsCMake.buildTarget",
         "title": "Build target",
         "category": "CMake",
-        "icon": "$(play)"
+        "icon": "$(build)"
       },
       {
         "command": "vsCMake.rebuildTarget",
@@ -252,7 +252,7 @@
         "command": "vsCMake.launch",
         "title": "Launch",
         "category": "CMake",
-        "icon": "$(run-all)"
+        "icon": "$(run)"
       },
       {
         "command": "vsCMake.refresh",
@@ -331,12 +331,18 @@
         "title": "Scan available compilers",
         "category": "CMake",
         "icon": "$(search)"
+      },
+      {
+        "command": "vsCMake.openSettings",
+        "title": "Open the extension settings",
+        "category": "CMake",
+        "icon": "$(gear)"
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "vsCMake.selectBuildDir",
+          "command": "vsCMake.configure",
           "when": "view == vsCMakeStatus",
           "group": "navigation@1"
         },
@@ -346,24 +352,14 @@
           "group": "navigation@2"
         },
         {
-          "command": "vsCMake.configure",
+          "command": "vsCMake.refresh",
           "when": "view == vsCMakeStatus",
           "group": "navigation@3"
         },
         {
-          "command": "vsCMake.build",
-          "when": "view == vsCMakeStatus",
-          "group": "navigation@4"
-        },
-        {
-          "command": "vsCMake.clean",
+          "command": "vsCMake.openSettings",
           "when": "view == vsCMakeStatus",
           "group": "navigation@5"
-        },
-        {
-          "command": "vsCMake.refresh",
-          "when": "view == vsCMakeStatus",
-          "group": "navigation@6"
         },
         {
           "command": "vsCMake.refresh",
@@ -394,11 +390,6 @@
           "command": "vsCMake.refresh",
           "when": "view == vsCMakeConfig",
           "group": "navigation@5"
-        },
-        {
-          "command": "vsCMake.scanKits",
-          "when": "view == vsCMakeStatus",
-          "group": "navigation@0"
         }
       ],
       "view/item/context": [
