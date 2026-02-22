@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import * as os from 'os';
 import { isWindows, isClInPath, captureVcvarsEnv, MsvcArch, findDefaultVcvarsall } from './msvc_env';
 import { Kit } from './kit_scanner';
+import { CMakeDiagnosticsManager } from './cmake_diagnostics_manager';
 
 // ------------------------------------------------------------
 // Types
@@ -21,6 +22,12 @@ export interface RunningTask {
     cancel: () => void;
 }
 
+interface RunOptions {
+    silent?: boolean;
+    /** When set, enables CMake diagnostic parsing and resolves relative paths against this dir */
+    diagnosticsSourceDir?: string;
+}
+
 // ------------------------------------------------------------
 // Runner
 // ------------------------------------------------------------
@@ -33,12 +40,14 @@ export class Runner {
     private msvcEnv: Record<string, string> | null | undefined = undefined;
     private activeKit: Kit | undefined = undefined;
     private state: vscode.Memento | undefined;
+    private diagnosticsManager: CMakeDiagnosticsManager | undefined;
 
     private readonly _onTasksChanged = new vscode.EventEmitter<RunningTask[]>();
     readonly onTasksChanged: vscode.Event<RunningTask[]> = this._onTasksChanged.event;
 
-    constructor(state?: vscode.Memento) {
+    constructor(state?: vscode.Memento, diagnosticsManager?: CMakeDiagnosticsManager) {
         this.state = state;
+        this.diagnosticsManager = diagnosticsManager;
         const colorize = vscode.workspace.getConfiguration('vsCMake').get<boolean>('colorizeOutput', true);
         this.channel = colorize
             ? vscode.window.createOutputChannel('vsCMake', 'vscmake-output')
@@ -65,10 +74,6 @@ export class Runner {
     // Active kit
     // --------------------------------------------------------
 
-    /**
-     * Sets the active kit. If it's an MSVC kit (with vcvarsall),
-     * forces environment re-resolution on next run.
-     */
     setActiveKit(kit: Kit | undefined): void {
         this.activeKit = kit;
         this.msvcEnv = undefined;
@@ -91,7 +96,6 @@ export class Runner {
             return undefined;
         }
 
-        // MSVC kit with vcvarsall → targeted capture
         if (this.activeKit?.vcvarsall && this.activeKit?.vcvarsArch) {
             const env = captureVcvarsEnv(this.activeKit.vcvarsall, this.activeKit.vcvarsArch);
             if (env) {
@@ -104,7 +108,6 @@ export class Runner {
             }
         }
 
-        // No kit → automatic detection (preset mode)
         const auto = findDefaultVcvarsall();
         if (auto) {
             const env = captureVcvarsEnv(auto.vcvarsall, auto.arch);
@@ -131,11 +134,6 @@ export class Runner {
         this.msvcEnv = undefined;
     }
 
-    /**
-     * Clears both in-memory and persisted MSVC environment cache.
-     * Forces a full re-resolution (including vcvarsall.bat re-execution)
-     * on the next run.
-     */
     clearPersistedMsvcEnv(): void {
         this.msvcEnv = undefined;
         this.state?.update(Runner.MSVC_STATE_KEY, undefined);
@@ -145,7 +143,7 @@ export class Runner {
     // Silent generic execution (discovery, listing)
     // --------------------------------------------------------
     async exec(cmd: string, args: string[], cwd: string): Promise<RunResult> {
-        return this.run(cmd, args, cwd, true);
+        return this.run(cmd, args, cwd, { silent: true });
     }
 
     // --------------------------------------------------------
@@ -166,7 +164,8 @@ export class Runner {
             args.push('-S', sourceDir!, '-B', buildDir!);
         }
         for (const [k, v] of Object.entries(defs)) { args.push(`-D${k}=${v}`); }
-        return this.run(cmd, args, sourceDir ?? '.');
+        const cwd = sourceDir ?? '.';
+        return this.run(cmd, args, cwd, { diagnosticsSourceDir: cwd });
     }
 
     // --------------------------------------------------------
@@ -256,7 +255,7 @@ export class Runner {
     async listTests(buildDir: string, ctestPath?: string): Promise<RunResult> {
         const cmd = ctestPath || 'ctest';
         const args = ['--test-dir', buildDir, '--show-only=json-v1'];
-        return this.run(cmd, args, buildDir, true);
+        return this.run(cmd, args, buildDir, { silent: true });
     }
 
     async listTestsWithPreset(
@@ -266,19 +265,26 @@ export class Runner {
     ): Promise<RunResult> {
         const cmd = ctestPath || 'ctest';
         const args = ['--preset', preset, '--show-only=json-v1'];
-        return this.run(cmd, args, sourceDir, true);
+        return this.run(cmd, args, sourceDir, { silent: true });
     }
 
     // --------------------------------------------------------
     // Private
     // --------------------------------------------------------
-    private run(cmd: string, args: string[], cwd: string, silent = false): Promise<RunResult> {
+    private run(cmd: string, args: string[], cwd: string, opts: RunOptions = {}): Promise<RunResult> {
+        const { silent = false, diagnosticsSourceDir } = opts;
         const id = this.nextId++;
         const label = `${cmd} ${args.join(' ')}`;
         const isWin = os.platform() === 'win32';
         const clearOutput = !silent && vscode.workspace.getConfiguration('vsCMake').get<boolean>('clearOutputBeforeRun', true);
 
         const msvcEnv = this.resolveMsvcEnv();
+
+        // If this is a configure run, clear previous diagnostics
+        const parseDiag = diagnosticsSourceDir && this.diagnosticsManager;
+        if (parseDiag) {
+            this.diagnosticsManager!.clear();
+        }
 
         return new Promise(resolve => {
             if (clearOutput) { this.channel.clear(); }
@@ -295,6 +301,9 @@ export class Runner {
                 : spawn(cmd, args, { cwd, shell: false, detached: true });
 
             let stdout = '', stderr = '', killed = false;
+
+            // Line buffer for diagnostic parsing (data chunks don't align with lines)
+            let lineBuf = '';
 
             const killProc = (): void => {
                 if (isWin) {
@@ -323,15 +332,29 @@ export class Runner {
                 resolve(result);
             };
 
+            /** Feed text to the diagnostic parser, handling partial lines */
+            const feedDiagnostics = (text: string): void => {
+                if (!parseDiag) { return; }
+                lineBuf += text;
+                const lines = lineBuf.split('\n');
+                // Keep the last (potentially incomplete) chunk in the buffer
+                lineBuf = lines.pop()!;
+                for (const line of lines) {
+                    this.diagnosticsManager!.parseLine(line, diagnosticsSourceDir!);
+                }
+            };
+
             proc.stdout?.on('data', (chunk: Buffer) => {
                 const text = chunk.toString();
                 stdout += text;
                 if (!silent) { this.channel.append(text); }
+                feedDiagnostics(text);
             });
             proc.stderr?.on('data', (chunk: Buffer) => {
                 const text = chunk.toString();
                 stderr += text;
                 if (!silent) { this.channel.append(text); }
+                feedDiagnostics(text);
             });
             proc.on('error', err => {
                 const msg = `Unable to launch ${cmd}: ${err.message}`;
@@ -342,6 +365,15 @@ export class Runner {
                 finish({ success: false, stdout, stderr: msg, code: null, cancelled: false });
             });
             proc.on('close', (code: number | null) => {
+                // Flush remaining line buffer to diagnostics parser
+                if (parseDiag && lineBuf.length > 0) {
+                    this.diagnosticsManager!.parseLine(lineBuf, diagnosticsSourceDir!);
+                    lineBuf = '';
+                }
+                if (parseDiag) {
+                    this.diagnosticsManager!.finalize(diagnosticsSourceDir!);
+                }
+
                 if (killed) {
                     finish({ success: false, stdout, stderr, code, cancelled: true });
                 } else {

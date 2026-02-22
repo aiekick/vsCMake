@@ -10,6 +10,8 @@ import { PresetReader, ResolvedPresets } from './cmake/preset_reader';
 import { CacheEntry, CtestShowOnlyResult } from './cmake/types';
 import { Kit, scanKits } from './cmake/kit_scanner';
 import { clearMsvcEnvCache } from './cmake/msvc_env';
+import { CMakeDiagnosticsManager } from './cmake/cmake_diagnostics_manager';
+import { CMakeFileDecorationProvider } from './providers/cmake_file_decoration_provider';
 
 // ------------------------------------------------------------
 // Types
@@ -41,7 +43,12 @@ let availableKits: Kit[] = [];
 // Activation
 // ------------------------------------------------------------
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-    runner = new Runner(context.workspaceState);
+
+    const diagnosticsManager = new CMakeDiagnosticsManager();
+    const fileDecorationProvider = new CMakeFileDecorationProvider(diagnosticsManager);
+    context.subscriptions.push(diagnosticsManager, fileDecorationProvider);
+
+    runner = new Runner(context.workspaceState, diagnosticsManager);
 
     // Status bar — running tasks
     taskStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
