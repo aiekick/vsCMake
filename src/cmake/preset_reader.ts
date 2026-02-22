@@ -20,12 +20,14 @@ interface RawPresetFile {
 interface RawCondition {
     type: 'const' | 'equals' | 'notEquals' | 'inList' | 'notInList'
     | 'matches' | 'notMatches' | 'anyOf' | 'allOf' | 'not';
-    value?: string;       // const
-    lhs?: string;       // equals / notEquals / inList / notInList / matches / notMatches
-    rhs?: string;       // equals / notEquals / matches / notMatches
-    list?: string[];     // inList / notInList
+    value?: string;         // const
+    lhs?: string;           // equals / notEquals
+    rhs?: string;           // equals / notEquals
+    string?: string;        // inList / notInList / matches / notMatches
+    list?: string[];        // inList / notInList
+    regex?: string;         // matches / notMatches
     conditions?: RawCondition[]; // anyOf / allOf
-    condition?: RawCondition;   // not
+    condition?: RawCondition;    // not
 }
 
 interface RawBase {
@@ -517,20 +519,22 @@ export class PresetReader {
             case 'notEquals':
                 return expand(cond.lhs ?? '') !== expand(cond.rhs ?? '');
 
+            // CMake spec: inList/notInList use "string" and "list"
             case 'inList':
-                return (cond.list ?? []).map(expand).includes(expand(cond.lhs ?? ''));
+                return (cond.list ?? []).map(expand).includes(expand(cond.string ?? ''));
 
             case 'notInList':
-                return !(cond.list ?? []).map(expand).includes(expand(cond.lhs ?? ''));
+                return !(cond.list ?? []).map(expand).includes(expand(cond.string ?? ''));
 
+            // CMake spec: matches/notMatches use "string" and "regex"
             case 'matches':
                 try {
-                    return new RegExp(expand(cond.rhs ?? '')).test(expand(cond.lhs ?? ''));
+                    return new RegExp(expand(cond.regex ?? '')).test(expand(cond.string ?? ''));
                 } catch { return false; }
 
             case 'notMatches':
                 try {
-                    return !new RegExp(expand(cond.rhs ?? '')).test(expand(cond.lhs ?? ''));
+                    return !new RegExp(expand(cond.regex ?? '')).test(expand(cond.string ?? ''));
                 } catch { return true; }
 
             case 'anyOf':

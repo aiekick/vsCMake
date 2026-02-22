@@ -751,7 +751,7 @@
       {
         "language": "vscmake-output",
         "scopeName": "source.vscmake-output",
-        "path": "./src/syntaxes/output_coloration.tmLanguage.json"
+        "path": "./syntaxes/output_coloration.tmLanguage.json"
       }
     ]
   },

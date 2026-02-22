@@ -155,6 +155,12 @@ export class ProjectStatusProvider implements vscode.TreeDataProvider<StatusNode
       if (!p.packagePresets.find(x => x.name === this.state.packagePreset)) {
         this.state.packagePreset = p.packagePresets[0]?.name ?? '';
       }
+    } else {
+      // No preset file found — clear all preset selections to avoid stale references
+      this.state.configurePreset = '';
+      this.state.buildPreset = '';
+      this.state.testPreset = '';
+      this.state.packagePreset = '';
     }
     this.persist();
     this._onDidChangeTreeData.fire();
@@ -324,7 +330,8 @@ export class ProjectStatusProvider implements vscode.TreeDataProvider<StatusNode
   // --------------------------------------------------------
 
   private sectionChildren(node: SectionNode): ValueNode[] {
-    const hasPresets = !!this.presets;
+    const hasConfigurePresets = !!this.presets?.configurePresets.length;
+    const hasBuildPresets = !!this.presets?.buildPresets.length;
 
     if (node.id === 'kit') {
       if (this.kitScanning) {
@@ -336,7 +343,7 @@ export class ProjectStatusProvider implements vscode.TreeDataProvider<StatusNode
     }
 
     if (node.id === 'configure') {
-      if (hasPresets) {
+      if (hasConfigurePresets) {
         return [{ kind: 'value', parentId: 'configure', value: `Preset : ${this.configurePresetLabel()}`, subKind: 'configurePreset' }];
       }
       return [{ kind: 'value', parentId: 'configure', value: `Config : ${this.state.config || DEFAULT_CONFIG}`, subKind: 'configChoice' }];
@@ -344,7 +351,7 @@ export class ProjectStatusProvider implements vscode.TreeDataProvider<StatusNode
 
     if (node.id === 'build') {
       const children: ValueNode[] = [];
-      if (hasPresets) {
+      if (hasBuildPresets) {
         children.push({ kind: 'value', parentId: 'build', value: `Preset : ${this.buildPresetLabel()}`, subKind: 'buildPreset' });
         if (this.isCurrentPresetMultiConfig() && !this.currentBuildPresetHasConfig()) {
           children.push({ kind: 'value', parentId: 'build', value: `Config : ${this.state.buildConfig || DEFAULT_CONFIG}`, subKind: 'buildConfig' });
@@ -362,7 +369,7 @@ export class ProjectStatusProvider implements vscode.TreeDataProvider<StatusNode
 
     if (node.id === 'test') {
       const children: ValueNode[] = [];
-      if (hasPresets && this.presets?.testPresets.length) {
+      if (this.presets?.testPresets.length) {
         const p = this.presets.testPresets.find(x => x.name === this.state.testPreset);
         const label = p?.displayName ?? this.presets.testPresets[0]?.displayName ?? '—';
         children.push({ kind: 'value', parentId: 'test', value: `Preset : ${label}`, subKind: 'testPreset' });

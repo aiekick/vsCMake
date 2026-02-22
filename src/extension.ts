@@ -395,7 +395,8 @@ async function cmdConfigure(): Promise<void> {
     const cmakePath = getCmakePath();
     const presetName = statusProvider?.currentConfigurePreset;
 
-    if (presetName) {
+    // Only use preset mode if the preset actually exists in the loaded presets
+    if (presetName && currentPresets?.configurePresets.find(p => p.name === presetName)) {
         // The preset can override the buildDir
         const presetBuildDir = resolvePresetBuildDir(presetName, src);
         if (presetBuildDir) {
