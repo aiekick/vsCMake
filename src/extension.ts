@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
+import * as fs from 'fs';
 import { ApiClient, CmakeReply } from './cmake/api_client';
 import { Runner, RunResult } from './cmake/runner';
 import { ReplyWatcher } from './watchers/reply_watcher';
@@ -228,6 +229,12 @@ async function initBuildDir(dir: string, context: vscode.ExtensionContext): Prom
     buildDir = dir;
     wsState?.update(BUILD_DIR_STATE_KEY, dir);
     apiClient = new ApiClient(dir);
+
+    if (!hasCMakeLists()) {
+        await loadPresets();
+        return;
+    }
+
     await apiClient.writeQueries();
 
     await loadPresets();
@@ -468,6 +475,9 @@ async function ensureBuildDir(dir: string): Promise<void> {
     buildDir = dir;
     wsState?.update(BUILD_DIR_STATE_KEY, dir);
     apiClient = new ApiClient(dir);
+
+    if (!hasCMakeLists()) { return; }
+
     await apiClient.writeQueries();
 
     // The watcher must be created with the extension context
@@ -1114,6 +1124,12 @@ async function cmdRevealDependency(node: unknown): Promise<void> {
 
 function getWorkspaceDir(): string | null {
     return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null;
+}
+
+function hasCMakeLists(): boolean {
+    const src = sourceDir ?? getWorkspaceDir();
+    if (!src) { return false; }
+    return fs.existsSync(path.join(src, 'CMakeLists.txt'));
 }
 
 function resolveSettingPath(value: string | undefined): string | null {
