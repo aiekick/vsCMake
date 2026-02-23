@@ -1,16 +1,11 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import * as fs from 'fs';
 import { ApiClient, CmakeReply } from './cmake/api_client';
 import { Runner, RunResult } from './cmake/runner';
 import { ReplyWatcher } from './watchers/reply_watcher';
-import { ProjectStatusProvider } from './providers/project_status_provider';
 import { ProjectOutlineProvider } from './providers/project_outline_provider';
 import { ConfigProvider } from './providers/config_provider';
-import { PresetReader, ResolvedPresets } from './cmake/preset_reader';
 import { CacheEntry, CtestShowOnlyResult } from './cmake/types';
-import { Kit, scanKits } from './cmake/kit_scanner';
-import { clearMsvcEnvCache } from './cmake/msvc_env';
 import { CMakeDiagnosticsManager } from './cmake/cmake_diagnostics_manager';
 import { CMakeFileDecorationProvider } from './providers/cmake_file_decoration_provider';
 import { ImpactedTargetsProvider } from './providers/impacted_targets_provider';
@@ -29,7 +24,6 @@ interface CtestInfo {
 let runner: Runner | null = null;
 let apiClient: ApiClient | null = null;
 let replyWatcher: ReplyWatcher | null = null;
-let statusProvider: ProjectStatusProvider | null = null;
 let outlineProvider: ProjectOutlineProvider | null = null;
 let configProvider: ConfigProvider | null = null;
 let impactedProvider: ImpactedTargetsProvider | null = null;
@@ -37,14 +31,14 @@ let configView: vscode.TreeView<unknown> | null = null;
 let outlineView: vscode.TreeView<unknown> | null = null;
 let impactedView: vscode.TreeView<unknown> | null = null;
 let lastReply: CmakeReply | null = null;
-let currentPresets: ResolvedPresets | null = null;
-let sourceDir: string | null = null;
 let buildDir: string | null = null;
+let currentConfig: string = 'Release';
+let availableConfigs: string[] = [];
 let taskStatusBar: vscode.StatusBarItem | null = null;
-let availableKits: Kit[] = [];
 let wsState: vscode.Memento | null = null;
 
 const BUILD_DIR_STATE_KEY = 'vsCMake.buildDir';
+const ACTIVE_CONFIG_STATE_KEY = 'vsCMake.activeConfig';
 
 // ------------------------------------------------------------
 // Activation
@@ -76,18 +70,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     wsState = context.workspaceState;
 
-    statusProvider = new ProjectStatusProvider();
     outlineProvider = new ProjectOutlineProvider();
     configProvider = new ConfigProvider();
     impactedProvider = new ImpactedTargetsProvider();
-
-    // Restore persisted state
-    statusProvider.initPersistence(context.workspaceState);
-
-    const statusView = vscode.window.createTreeView('vsCMakeStatus', {
-        treeDataProvider: statusProvider,
-        showCollapseAll: false,
-    });
 
     outlineView = vscode.window.createTreeView('vsCMakeOutline', {
         treeDataProvider: outlineProvider,
@@ -113,37 +98,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         impactedProvider!.setActiveFile(editor?.document.uri.fsPath ?? null);
     }, null, context.subscriptions);
 
-    statusProvider.onActiveConfigChanged(cfg => {
-        if (lastReply) {
-            outlineProvider!.refresh(
-                lastReply.codemodel,
-                lastReply.targets,
-                cfg,
-                lastReply.cmakeFiles.inputs.map(i => i.path)
-            );
-        }
-    }, null, context.subscriptions);
-
     const cmds: [string, (...args: unknown[]) => unknown][] = [
         ['vsCMake.cancelTask', () => cmdCancelTask()],
-        ['vsCMake.deleteCacheAndReconfigure', () => cmdDeleteCacheAndReconfigure()],
-        ['vsCMake.pick_folder', () => cmdPickFolder(context)],
-        ['vsCMake.pick_configChoice', () => statusProvider!.pickConfigChoice()],
-        ['vsCMake.pick_configure', () => statusProvider!.pickConfigure()],
-        ['vsCMake.pick_build', () => statusProvider!.pickBuild()],
-        ['vsCMake.pick_buildConfig', () => statusProvider!.pickBuildConfig()],
-        ['vsCMake.pick_buildTarget', () => statusProvider!.pickBuildTarget()],
-        ['vsCMake.pick_buildJobs', () => statusProvider!.pickBuildJobs()],
-        ['vsCMake.pick_test', () => cmdPickTestPreset()],
-        ['vsCMake.pick_testTarget', () => cmdPickTestTarget()],
-        ['vsCMake.pick_testJobs', () => statusProvider!.pickTestJobs()],
-        ['vsCMake.pick_package', () => statusProvider!.pickPackage()],
-        ['vsCMake.pick_debug', () => statusProvider!.pickDebug()],
-        ['vsCMake.pick_launch', () => statusProvider!.pickLaunch()],
-        ['vsCMake.pick_kit', () => statusProvider!.pickKit()],
-        ['vsCMake.scanKits', cmdScanKits],
         ['vsCMake.selectBuildDir', () => cmdSelectBuildDir(context)],
-        ['vsCMake.configure', cmdConfigure],
+        ['vsCMake.selectConfig', cmdSelectConfig],
         ['vsCMake.build', cmdBuild],
         ['vsCMake.buildTarget', cmdBuildTarget],
         ['vsCMake.rebuildTarget', (node: unknown) => cmdRebuildTarget(node)],
@@ -159,14 +117,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ['vsCMake.clearFilterOutline', cmdClearFilterOutline],
         ['vsCMake.expandAllOutline', cmdExpandAllOutline],
         ['vsCMake.clean', cmdClean],
-        ['vsCMake.install', cmdInstall],
         ['vsCMake.test', cmdTest],
-        ['vsCMake.debug', cmdDebug],
-        ['vsCMake.launch', cmdLaunch],
         ['vsCMake.refresh', cmdRefresh],
-        ['vsCMake.refreshOutline', cmdRefreshOutline],
-        ['vsCMake.refreshConfig', cmdRefreshConfig],
-        ['vsCMake.refreshImpacted', cmdRefreshImpacted],
+        ['vsCMake.refreshOutline', cmdRefresh],
+        ['vsCMake.refreshConfig', cmdRefresh],
+        ['vsCMake.refreshImpacted', cmdRefresh],
         ['vsCMake.editCacheEntry', (e: unknown) => cmdEditCacheEntry(e as CacheEntry)],
         ['vsCMake.filterConfig', cmdFilterConfig],
         ['vsCMake.clearFilterConfig', cmdClearFilterConfig],
@@ -184,33 +139,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         context.subscriptions.push(vscode.commands.registerCommand(id, handler));
     }
 
-    context.subscriptions.push(statusView, outlineView, configView, impactedView, runner);
+    context.subscriptions.push(outlineView, configView, impactedView, runner);
 
-    // ── Initialize sourceDir ──
-    const cfg = vscode.workspace.getConfiguration('vsCMake');
-    const savedSource = statusProvider.savedSourceDir
-        || resolveSettingPath(cfg.get<string>('sourceDir'))
-        || getWorkspaceDir();
-    sourceDir = savedSource ?? null;
-
-    if (sourceDir) {
-        statusProvider.updateSourceDir(sourceDir);
-    }
+    // Restore persisted config
+    currentConfig = wsState.get<string>(ACTIVE_CONFIG_STATE_KEY) || 'Release';
 
     // ── Initialize buildDir ──
-    // Priority: settings > persisted state (handles preset-resolved paths)
+    const cfg = vscode.workspace.getConfiguration('vsCMake');
     const savedBuild = resolveSettingPath(cfg.get<string>('buildDir'))
         || wsState.get<string>(BUILD_DIR_STATE_KEY)
         || null;
     if (savedBuild) {
         await initBuildDir(savedBuild, context);
-    } else {
-        await loadPresets();
-    }
-
-    // ── Scan kits if no presets ──
-    if (!currentPresets?.configurePresets.length) {
-        await cmdScanKits();
     }
 }
 
@@ -230,14 +170,7 @@ async function initBuildDir(dir: string, context: vscode.ExtensionContext): Prom
     wsState?.update(BUILD_DIR_STATE_KEY, dir);
     apiClient = new ApiClient(dir);
 
-    if (!hasCMakeLists()) {
-        await loadPresets();
-        return;
-    }
-
     await apiClient.writeQueries();
-
-    await loadPresets();
 
     replyWatcher = new ReplyWatcher(dir);
     replyWatcher.onDidReply(loadReply, null, context.subscriptions);
@@ -247,19 +180,9 @@ async function initBuildDir(dir: string, context: vscode.ExtensionContext): Prom
         await loadReply();
     } else {
         vscode.window.showInformationMessage(
-            'vsCMake: build dir configured. Run "CMake: Configure" to get started.'
+            'vsCMake: build dir configured. Waiting for CMake reply files.'
         );
     }
-}
-
-// ------------------------------------------------------------
-// Load presets
-// ------------------------------------------------------------
-async function loadPresets(): Promise<void> {
-    const src = sourceDir ?? getWorkspaceDir();
-    if (!src) { return; }
-    currentPresets = await PresetReader.read(src);
-    statusProvider!.setPresets(currentPresets);
 }
 
 // ------------------------------------------------------------
@@ -269,21 +192,27 @@ async function loadReply(): Promise<void> {
     if (!apiClient) { return; }
     try {
         lastReply = await apiClient.loadAll();
-        const src = sourceDir ?? getWorkspaceDir() ?? '';
+
+        // Detect available configurations
+        availableConfigs = lastReply.codemodel.configurations.map(c => c.name || '(default)');
+        currentConfig = detectConfig();
+
+        // Show/hide config selector button based on multi-config
+        await vscode.commands.executeCommand('setContext', 'vsCMake.multiConfig', availableConfigs.length > 1);
 
         const cmakeInputs = lastReply.cmakeFiles.inputs.map(i => i.path);
-
-        statusProvider!.refreshFromCodemodel(src, lastReply.codemodel, lastReply.targets, cmakeInputs, buildDir ?? undefined);
 
         outlineProvider!.refresh(
             lastReply.codemodel,
             lastReply.targets,
-            statusProvider!.currentConfig,
+            currentConfig,
             cmakeInputs
         );
 
         configProvider!.refresh(lastReply.cache);
 
+        // Derive sourceDir from codemodel paths
+        const src = lastReply.codemodel.paths?.source || '';
         impactedProvider!.refresh(lastReply.targets, src);
 
         await refreshAvailableTests();
@@ -296,64 +225,48 @@ async function loadReply(): Promise<void> {
 }
 
 // ------------------------------------------------------------
-// Commands — pickers
+// Config detection
 // ------------------------------------------------------------
-
-async function cmdPickFolder(context: vscode.ExtensionContext): Promise<void> {
-    const dir = await pickSourceDir();
-    if (!dir) { return; }
-    sourceDir = dir;
-    await vscode.workspace.getConfiguration('vsCMake').update(
-        'sourceDir', dir, vscode.ConfigurationTarget.Workspace
-    );
-    statusProvider!.updateSourceDir(dir);
-    await loadPresets();
-
-    if (lastReply) {
-        const cmakeInputs = lastReply.cmakeFiles.inputs.map(i => i.path);
-        statusProvider!.refreshFromCodemodel(dir, lastReply.codemodel, lastReply.targets, cmakeInputs, buildDir ?? undefined);
-    }
-
-    if (!buildDir) {
-        const defaultBuild = path.join(dir, 'build');
-        const choice = await vscode.window.showQuickPick([
-            { label: `$(folder) ${defaultBuild}`, description: 'Default build/ subfolder', value: defaultBuild },
-            { label: '$(folder-opened) Choose another folder…', description: '', value: '__pick__' },
-        ], { placeHolder: 'Where to place the build folder?' });
-
-        if (!choice) { return; }
-
-        const selectedBuild = choice.value === '__pick__'
-            ? await pickBuildDir()
-            : choice.value;
-
-        if (!selectedBuild) { return; }
-
-        await vscode.workspace.getConfiguration('vsCMake').update(
-            'buildDir', selectedBuild, vscode.ConfigurationTarget.Workspace
-        );
-        await initBuildDir(selectedBuild, context);
-    }
+function detectConfig(): string {
+    if (availableConfigs.length === 0) { return 'Release'; }
+    if (availableConfigs.length === 1) { return availableConfigs[0]; }
+    // Multi-config: use persisted selection if still valid
+    const persisted = wsState?.get<string>(ACTIVE_CONFIG_STATE_KEY);
+    if (persisted && availableConfigs.includes(persisted)) { return persisted; }
+    return availableConfigs[0];
 }
 
 // ------------------------------------------------------------
-// Commands — Kit scan
+// Commands — config selection
 // ------------------------------------------------------------
+async function cmdSelectConfig(): Promise<void> {
+    if (!availableConfigs.length) {
+        vscode.window.showWarningMessage('vsCMake: no configurations available. Load a build directory first.');
+        return;
+    }
+    const items = availableConfigs.map(c => ({
+        label: c,
+        description: c === currentConfig ? '(current)' : '',
+    }));
+    const picked = await vscode.window.showQuickPick(items, {
+        placeHolder: 'Select the active configuration',
+    });
+    if (!picked) { return; }
+    currentConfig = picked.label;
+    wsState?.update(ACTIVE_CONFIG_STATE_KEY, currentConfig);
 
-async function cmdScanKits(): Promise<void> {
-    const extraPaths = vscode.workspace
-        .getConfiguration('vsCMake')
-        .get<string[]>('kitSearchPaths', []);
-
-    statusProvider!.setKitScanning(true);
-
-    try {
-        availableKits = await scanKits(extraPaths, (msg) => {
-            statusProvider!.setKitScanMessage(msg);
-        });
-        statusProvider!.setKits(availableKits);
-    } finally {
-        statusProvider!.setKitScanning(false);
+    // Refresh all panes with new config
+    if (lastReply) {
+        const cmakeInputs = lastReply.cmakeFiles.inputs.map(i => i.path);
+        outlineProvider!.refresh(
+            lastReply.codemodel,
+            lastReply.targets,
+            currentConfig,
+            cmakeInputs
+        );
+        configProvider!.refresh(lastReply.cache);
+        const src = lastReply.codemodel.paths?.source || '';
+        impactedProvider!.refresh(lastReply.targets, src);
     }
 }
 
@@ -382,113 +295,8 @@ function getCtestPath(): string {
     return resolveSettingPath(vscode.workspace.getConfiguration('vsCMake').get<string>('ctestPath')) || '';
 }
 
-function getCpackPath(): string {
-    return resolveSettingPath(vscode.workspace.getConfiguration('vsCMake').get<string>('cpackPath')) || '';
-}
-
-async function cmdConfigure(): Promise<void> {
-    if (!runner) {
-        vscode.window.showWarningMessage('vsCMake: runner not initialized.');
-        return;
-    }
-    const src = sourceDir ?? getWorkspaceDir();
-    if (!src) {
-        vscode.window.showWarningMessage('vsCMake: no source folder defined.');
-        return;
-    }
-
-    await loadPresets();
-
-    const cmakePath = getCmakePath();
-    const presetName = statusProvider?.currentConfigurePreset;
-
-    // Only use preset mode if the preset actually exists in the loaded presets
-    if (presetName && currentPresets?.configurePresets.find(p => p.name === presetName)) {
-        // The preset can override the buildDir
-        const presetBuildDir = resolvePresetBuildDir(presetName, src);
-        if (presetBuildDir) {
-            if (checkInSourceBuild(presetBuildDir, src)) { return; }
-            await ensureBuildDir(presetBuildDir);
-        } else if (!buildDir) {
-            vscode.window.showWarningMessage('vsCMake: no build folder defined (neither in settings nor in preset).');
-            return;
-        } else if (checkInSourceBuild(buildDir, src)) {
-            return;
-        }
-
-        const result = await runner.configure(src, undefined, {}, presetName, cmakePath);
-        if (!result.success && !result.cancelled) {
-            vscode.window.showErrorMessage(`vsCMake: configure failed (code ${result.code})`);
-        }
-    } else {
-        if (!buildDir) {
-            vscode.window.showWarningMessage('vsCMake: select a build folder first.');
-            return;
-        }
-        if (checkInSourceBuild(buildDir, src)) { return; }
-        const defs: Record<string, string> = {};
-        const config = statusProvider?.currentConfig;
-        if (config) {
-            defs['CMAKE_BUILD_TYPE'] = config;
-        }
-
-        // Kit injection
-        const kit = statusProvider?.currentKit;
-        if (kit) {
-            if (kit.compilers.c) { defs['CMAKE_C_COMPILER'] = kit.compilers.c; }
-            if (kit.compilers.cxx) { defs['CMAKE_CXX_COMPILER'] = kit.compilers.cxx; }
-            runner.setActiveKit(kit);
-        }
-
-        const result = await runner.configure(src, buildDir, defs, undefined, cmakePath);
-        if (!result.success && !result.cancelled) {
-            vscode.window.showErrorMessage(`vsCMake: configure failed (code ${result.code})`);
-        }
-    }
-}
-
-/**
- * Resolves the binaryDir of a configure preset.
- * Returns the absolute path or null if not found.
- */
-function resolvePresetBuildDir(presetName: string, src: string): string | null {
-    if (!currentPresets) { return null; }
-    const preset = currentPresets.configurePresets.find(p => p.name === presetName);
-    if (!preset?.binaryDir) { return null; }
-
-    const resolved = preset.binaryDir;
-    // The binaryDir is already resolved by PresetReader (macros expanded)
-    // but it may be relative to sourceDir
-    const { isAbsolute, join } = require('path') as typeof import('path');
-    return isAbsolute(resolved) ? resolved : join(src, resolved);
-}
-
-/**
- * Initializes the buildDir for a preset.
- * Writes query files and sets up the watcher if needed.
- */
-async function ensureBuildDir(dir: string): Promise<void> {
-    // Avoid reinitializing if it's already the correct folder
-    if (buildDir === dir && apiClient) { return; }
-
-    replyWatcher?.dispose();
-    buildDir = dir;
-    wsState?.update(BUILD_DIR_STATE_KEY, dir);
-    apiClient = new ApiClient(dir);
-
-    if (!hasCMakeLists()) { return; }
-
-    await apiClient.writeQueries();
-
-    // The watcher must be created with the extension context
-    // We recreate it here — it will be added to subscriptions
-    replyWatcher = new ReplyWatcher(dir);
-    replyWatcher.onDidReply(loadReply);
-
-    // If a reply already exists (reconfigure), load it
-    if (await apiClient.hasReply()) {
-        await loadReply();
-    }
+function getDefaultJobs(): number {
+    return vscode.workspace.getConfiguration('vsCMake').get<number>('defaultJobs', 0);
 }
 
 async function cmdBuild(): Promise<void> {
@@ -497,29 +305,10 @@ async function cmdBuild(): Promise<void> {
         return;
     }
     const cmakePath = getCmakePath();
-    const jobs = statusProvider?.currentBuildJobs || 0;
-    const presetName = statusProvider?.currentBuildPreset;
-    if (presetName) {
-        const buildConfig = statusProvider?.currentBuildConfig || undefined;
-        const src = sourceDir ?? getWorkspaceDir() ?? '.';
-        const result = await runner.build(src, undefined, buildConfig, presetName, cmakePath, jobs);
-        if (!result.success && !result.cancelled) {
-            vscode.window.showErrorMessage(`vsCMake: build failed (code ${result.code})`);
-        }
-    } else {
-        const target = statusProvider?.currentBuildTarget;
-        const config = statusProvider?.currentBuildConfig || statusProvider?.currentConfig;
-        const result = await runner.build(
-            buildDir,
-            target && target !== 'all' ? target : undefined,
-            config || undefined,
-            undefined,
-            cmakePath,
-            jobs
-        );
-        if (!result.success && !result.cancelled) {
-            vscode.window.showErrorMessage(`vsCMake: build failed (code ${result.code})`);
-        }
+    const jobs = getDefaultJobs();
+    const result = await runner.build(buildDir, undefined, currentConfig || undefined, undefined, cmakePath, jobs);
+    if (!result.success && !result.cancelled) {
+        vscode.window.showErrorMessage(`vsCMake: build failed (code ${result.code})`);
     }
 }
 
@@ -537,10 +326,8 @@ async function cmdBuildTarget(node?: unknown): Promise<void> {
     }
     if (!targetName) { return; }
     const cmakePath = getCmakePath();
-    const config = statusProvider?.currentConfig || undefined;
-    const jobs = statusProvider?.currentBuildJobs || 0;
-    const presetName = statusProvider?.currentBuildPreset || undefined;
-    const result = await runner.build(buildDir, targetName, config, presetName, cmakePath, jobs);
+    const jobs = getDefaultJobs();
+    const result = await runner.build(buildDir, targetName, currentConfig || undefined, undefined, cmakePath, jobs);
     if (!result.success && !result.cancelled) {
         vscode.window.showErrorMessage(`vsCMake: build of '${targetName}' failed (code ${result.code})`);
     }
@@ -560,8 +347,7 @@ async function cmdRebuildTarget(node?: unknown): Promise<void> {
     }
     if (!targetName) { return; }
     const cmakePath = getCmakePath();
-    const config = statusProvider?.currentConfig;
-    const result = await runner.cleanAndBuildTargets(buildDir, [targetName], config || undefined, cmakePath);
+    const result = await runner.cleanAndBuildTargets(buildDir, [targetName], currentConfig || undefined, cmakePath);
     if (!result.success && !result.cancelled) {
         vscode.window.showErrorMessage(`vsCMake: rebuild of '${targetName}' failed (code ${result.code})`);
     }
@@ -572,9 +358,8 @@ async function cmdBuildImpactedSection(node?: unknown): Promise<void> {
     const targets = extractSectionTargetNames(node);
     if (!targets.length) { return; }
     const cmakePath = getCmakePath();
-    const config = statusProvider?.currentConfig;
-    const jobs = statusProvider?.currentBuildJobs || 0;
-    const result = await runner.buildTargets(buildDir, targets, config || undefined, cmakePath, jobs);
+    const jobs = getDefaultJobs();
+    const result = await runner.buildTargets(buildDir, targets, currentConfig || undefined, cmakePath, jobs);
     if (!result.success && !result.cancelled) {
         vscode.window.showErrorMessage(`vsCMake: build of section failed (code ${result.code})`);
     }
@@ -585,9 +370,8 @@ async function cmdRebuildImpactedSection(node?: unknown): Promise<void> {
     const targets = extractSectionTargetNames(node);
     if (!targets.length) { return; }
     const cmakePath = getCmakePath();
-    const config = statusProvider?.currentConfig;
-    const jobs = statusProvider?.currentBuildJobs || 0;
-    const result = await runner.cleanAndBuildTargets(buildDir, targets, config || undefined, cmakePath, jobs);
+    const jobs = getDefaultJobs();
+    const result = await runner.cleanAndBuildTargets(buildDir, targets, currentConfig || undefined, cmakePath, jobs);
     if (!result.success && !result.cancelled) {
         vscode.window.showErrorMessage(`vsCMake: rebuild of section failed (code ${result.code})`);
     }
@@ -651,12 +435,11 @@ async function cmdTestImpactedTarget(node?: unknown): Promise<void> {
     if ((node as { kind: string }).kind !== 'impactedTarget') { return; }
     const targetName = (node as unknown as { target: { name: string } }).target.name;
     const ctestPath = getCtestPath();
-    const config = statusProvider?.currentConfig;
-    const jobs = statusProvider?.currentTestJobs || 0;
+    const jobs = getDefaultJobs();
     const regex = impactedProvider?.isTestTarget(targetName)
         ? impactedProvider.getTestRegex(targetName)
         : escapeRegex(targetName);
-    const result = await runner.testByRegex(buildDir, regex, config || undefined, ctestPath, jobs);
+    const result = await runner.testByRegex(buildDir, regex, currentConfig || undefined, ctestPath, jobs);
     if (!result.success && !result.cancelled) {
         vscode.window.showErrorMessage(`vsCMake: test '${targetName}' failed (code ${result.code})`);
     }
@@ -669,12 +452,11 @@ async function cmdTestImpactedSection(node?: unknown): Promise<void> {
     const targets = extractSectionTargetNames(node);
     if (!targets.length) { return; }
     const ctestPath = getCtestPath();
-    const config = statusProvider?.currentConfig;
-    const jobs = statusProvider?.currentTestJobs || 0;
+    const jobs = getDefaultJobs();
     const regex = sectionId === 'tests' && impactedProvider
         ? impactedProvider.getTestSectionRegex(targets)
         : targets.map(n => escapeRegex(n)).join('|');
-    const result = await runner.testByRegex(buildDir, regex, config || undefined, ctestPath, jobs);
+    const result = await runner.testByRegex(buildDir, regex, currentConfig || undefined, ctestPath, jobs);
     if (!result.success && !result.cancelled) {
         vscode.window.showErrorMessage(`vsCMake: tests failed (code ${result.code})`);
     }
@@ -732,38 +514,20 @@ async function cmdClean(): Promise<void> {
     await runner.clean(buildDir);
 }
 
-async function cmdInstall(): Promise<void> {
-    if (!runner || !buildDir) { return; }
-    await runner.install(buildDir);
-}
-
 // ------------------------------------------------------------
-// Tests — discovery and selection
+// Tests — discovery and execution
 // ------------------------------------------------------------
 
 let availableTests: CtestInfo[] = [];
 
 async function refreshAvailableTests(): Promise<void> {
-    if (!runner) { availableTests = []; return; }
+    if (!runner || !buildDir) { availableTests = []; return; }
 
-    const testPreset = statusProvider?.currentTestPreset;
     const ctestPath = getCtestPath();
-    let result: RunResult;
-
-    if (testPreset) {
-        const src = sourceDir ?? getWorkspaceDir() ?? '.';
-        result = await runner.listTestsWithPreset(testPreset, src, ctestPath);
-    } else if (buildDir) {
-        result = await runner.listTests(buildDir, ctestPath);
-    } else {
-        availableTests = [];
-        statusProvider?.setTestCount(0);
-        return;
-    }
+    const result = await runner.listTests(buildDir, ctestPath);
 
     if (!result.success) {
         availableTests = [];
-        statusProvider?.setTestCount(0);
         impactedProvider?.setTestMap(new Map());
         return;
     }
@@ -776,7 +540,6 @@ async function refreshAvailableTests(): Promise<void> {
         }));
 
         // Build targetName → testNames[] map from WORKING_DIRECTORY property.
-        // Match WORKING_DIRECTORY against each EXECUTABLE target's paths.build.
         const buildPathToTarget = new Map<string, string>();
         if (lastReply && buildDir) {
             for (const t of lastReply.targets) {
@@ -809,17 +572,6 @@ async function refreshAvailableTests(): Promise<void> {
         availableTests = [];
         impactedProvider?.setTestMap(new Map());
     }
-
-    statusProvider?.setTestCount(availableTests.length);
-}
-
-async function cmdPickTestPreset(): Promise<void> {
-    await statusProvider!.pickTest();
-    await refreshAvailableTests();
-}
-
-async function cmdPickTestTarget(): Promise<void> {
-    await statusProvider!.pickTestTarget(availableTests);
 }
 
 async function cmdTest(): Promise<void> {
@@ -828,100 +580,11 @@ async function cmdTest(): Promise<void> {
         return;
     }
     const ctestPath = getCtestPath();
-    const jobs = statusProvider?.currentTestJobs || 0;
-    const presetName = statusProvider?.currentTestPreset;
-    if (presetName) {
-        const src = sourceDir ?? getWorkspaceDir() ?? '.';
-        const result = await runner.test(src, undefined, presetName, ctestPath, jobs);
-        if (!result.success && !result.cancelled) {
-            vscode.window.showErrorMessage(`vsCMake: test failed (code ${result.code})`);
-        }
-    } else {
-        const config = statusProvider?.currentConfig;
-        const selected = statusProvider?.currentSelectedTest ?? 'all';
-        if (selected === 'all') {
-            const result = await runner.test(buildDir, config || undefined, undefined, ctestPath, jobs);
-            if (!result.success && !result.cancelled) {
-                vscode.window.showErrorMessage(`vsCMake: test failed (code ${result.code})`);
-            }
-        } else {
-            const result = await runner.testFiltered(buildDir, selected, config || undefined, ctestPath, jobs);
-            if (!result.success && !result.cancelled) {
-                vscode.window.showErrorMessage(`vsCMake: test '${selected}' failed (code ${result.code})`);
-            }
-        }
+    const jobs = getDefaultJobs();
+    const result = await runner.test(buildDir, currentConfig || undefined, undefined, ctestPath, jobs);
+    if (!result.success && !result.cancelled) {
+        vscode.window.showErrorMessage(`vsCMake: test failed (code ${result.code})`);
     }
-}
-
-async function cmdDebug(): Promise<void> {
-    const target = statusProvider?.currentDebugTarget;
-    if (!target) {
-        vscode.window.showWarningMessage('vsCMake: no debug target selected.');
-        return;
-    }
-    vscode.window.showInformationMessage(`vsCMake: Debug '${target}' — not yet implemented.`);
-}
-
-async function cmdLaunch(): Promise<void> {
-    const target = statusProvider?.currentLaunchTarget;
-    if (!target) {
-        vscode.window.showWarningMessage('vsCMake: no launch target selected.');
-        return;
-    }
-    vscode.window.showInformationMessage(`vsCMake: Launch '${target}' — not yet implemented.`);
-}
-
-async function cmdDeleteCacheAndReconfigure(): Promise<void> {
-    if (!buildDir) {
-        vscode.window.showWarningMessage('vsCMake: no build folder defined.');
-        return;
-    }
-    const src = sourceDir ?? getWorkspaceDir();
-    if (!src) {
-        vscode.window.showWarningMessage('vsCMake: no source folder defined.');
-        return;
-    }
-
-    const ok = await vscode.window.showWarningMessage(
-        `Delete CMake cache and reconfigure?\n${buildDir}`,
-        { modal: true },
-        'Delete and reconfigure'
-    );
-    if (!ok) { return; }
-
-    try {
-        const fs = await import('fs/promises');
-        const { join } = await import('path');
-
-        async function cleanCmakeCache(dir: string): Promise<void> {
-            let entries;
-            try { entries = await fs.readdir(dir, { withFileTypes: true }); }
-            catch { return; }
-            for (const entry of entries) {
-                const full = join(dir, entry.name);
-                if (entry.isFile() && entry.name === 'CMakeCache.txt') {
-                    await fs.rm(full, { force: true }).catch(() => { });
-                } else if (entry.isDirectory() && entry.name === 'CMakeFiles') {
-                    await fs.rm(full, { recursive: true, force: true }).catch(() => { });
-                } else if (entry.isDirectory()) {
-                    await cleanCmakeCache(full);
-                }
-            }
-        }
-
-        await cleanCmakeCache(buildDir);
-    } catch (err) {
-        vscode.window.showErrorMessage(
-            `vsCMake: failed to delete cache — ${(err as Error).message}`
-        );
-        return;
-    }
-
-    // Clear persisted MSVC env to force re-resolution
-    runner!.clearPersistedMsvcEnv();
-    clearMsvcEnvCache();
-
-    await cmdConfigure();
 }
 
 async function cmdCancelTask(): Promise<void> {
@@ -958,29 +621,6 @@ async function cmdRefresh(): Promise<void> {
     await loadReply();
 }
 
-/** Refresh Outline + Impacted from reply files (codemodel + targets) */
-async function cmdRefreshOutline(): Promise<void> {
-    await loadReply();
-}
-
-/** Refresh Config pane from cache file only */
-async function cmdRefreshConfig(): Promise<void> {
-    if (!apiClient) { return; }
-    try {
-        const cache = await apiClient.loadCache();
-        configProvider!.refresh(cache);
-    } catch (err) {
-        vscode.window.showErrorMessage(
-            `vsCMake: cache read error — ${(err as Error).message}`
-        );
-    }
-}
-
-/** Refresh Impacted Targets from reply files (codemodel + targets) */
-async function cmdRefreshImpacted(): Promise<void> {
-    await loadReply();
-}
-
 async function cmdOpenSettings(): Promise<void> {
     await vscode.commands.executeCommand(
         'workbench.action.openSettings',
@@ -988,8 +628,15 @@ async function cmdOpenSettings(): Promise<void> {
     );
 }
 
+/**
+ * Switch between two cache-edit strategies:
+ *  - false : write directly into CMakeCache.txt (no reconfigure)
+ *  - true  : run cmake -D to reconfigure (classic behaviour)
+ */
+const EDIT_CACHE_VIA_CONFIGURE = true;
+
 async function cmdEditCacheEntry(entry: CacheEntry): Promise<void> {
-    if (!runner || !buildDir) { return; }
+    if (!buildDir) { return; }
     let newValue: string | undefined;
     if (entry.type === 'BOOL') {
         newValue = await vscode.window.showQuickPick(['ON', 'OFF'], {
@@ -1009,11 +656,41 @@ async function cmdEditCacheEntry(entry: CacheEntry): Promise<void> {
         });
     }
     if (newValue === undefined || newValue === entry.value) { return; }
-    const src = sourceDir ?? getWorkspaceDir();
-    if (!src) { return; }
-    const result = await runner.configure(src, buildDir, { [entry.name]: newValue });
-    if (!result.success && !result.cancelled) {
-        vscode.window.showErrorMessage(`vsCMake: reconfigure failed after modifying ${entry.name}`);
+
+    if (EDIT_CACHE_VIA_CONFIGURE) {
+        // ── Strategy A: reconfigure with cmake -D ──
+        if (!runner) { return; }
+        const src = lastReply?.codemodel.paths?.source || buildDir;
+        const result = await runner.configure(src, buildDir, { [entry.name]: newValue });
+        if (!result.success && !result.cancelled) {
+            vscode.window.showErrorMessage(`vsCMake: reconfigure failed after modifying ${entry.name}`);
+        }
+    } else {
+        // ── Strategy B: patch CMakeCache.txt directly ──
+        const cachePath = path.join(buildDir, 'CMakeCache.txt');
+        try {
+            const fsP = await import('fs/promises');
+            const content = await fsP.readFile(cachePath, 'utf-8');
+            // Match the line:  NAME:TYPE=VALUE
+            const regex = new RegExp(`^(${escapeRegex(entry.name)}:${escapeRegex(entry.type)}=)(.*)$`, 'm');
+            if (!regex.test(content)) {
+                vscode.window.showWarningMessage(`vsCMake: entry ${entry.name} not found in CMakeCache.txt`);
+                return;
+            }
+            const updated = content.replace(regex, `$1${newValue}`);
+            await fsP.writeFile(cachePath, updated, 'utf-8');
+            vscode.window.showInformationMessage(`vsCMake: ${entry.name} set to ${newValue}`);
+
+            // Update in-memory cache and refresh the config pane
+            entry.value = newValue;
+            if (lastReply) {
+                configProvider!.refresh(lastReply.cache);
+            }
+        } catch (err) {
+            vscode.window.showErrorMessage(
+                `vsCMake: failed to update CMakeCache.txt — ${(err as Error).message}`
+            );
+        }
     }
 }
 
@@ -1130,12 +807,6 @@ function getWorkspaceDir(): string | null {
     return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null;
 }
 
-function hasCMakeLists(): boolean {
-    const src = sourceDir ?? getWorkspaceDir();
-    if (!src) { return false; }
-    return fs.existsSync(path.join(src, 'CMakeLists.txt'));
-}
-
 function resolveSettingPath(value: string | undefined): string | null {
     if (!value) { return null; }
     const ws = getWorkspaceDir();
@@ -1144,47 +815,6 @@ function resolveSettingPath(value: string | undefined): string | null {
     }
     if (value.includes('${workspaceFolder}')) { return null; }
     return value;
-}
-
-/** Returns true if both paths resolve to the same directory. */
-function isSameDirectory(a: string, b: string): boolean {
-    return path.resolve(a) === path.resolve(b);
-}
-
-/**
- * Checks if an in-source build should be blocked (build dir == source dir).
- * Returns true if the build was rejected (caller should abort).
- * Respects the vsCMake.preventInSourceBuild setting.
- */
-function checkInSourceBuild(effectiveBuildDir: string, src: string): boolean {
-    if (!vscode.workspace.getConfiguration('vsCMake').get<boolean>('preventInSourceBuild', true)) {
-        return false;
-    }
-    if (!isSameDirectory(effectiveBuildDir, src)) {
-        return false;
-    }
-    const msg = `In-source build rejected: build directory is the same as source directory (${src}). `
-        + 'Please set a different build directory in settings (vsCMake.buildDir) or in your CMake preset (binaryDir). '
-        + 'You can disable this check with the setting vsCMake.preventInSourceBuild.';
-    runner?.logToOutput(`✗ ${msg}`);
-    vscode.window.showErrorMessage(`vsCMake: ${msg}`);
-    return true;
-}
-
-async function pickSourceDir(): Promise<string | null> {
-    const folders = await vscode.window.showOpenDialog({
-        canSelectFolders: true, canSelectFiles: false, canSelectMany: false,
-        openLabel: 'Select source folder',
-    });
-    return folders?.[0]?.fsPath ?? null;
-}
-
-async function pickBuildDir(): Promise<string | null> {
-    const folders = await vscode.window.showOpenDialog({
-        canSelectFolders: true, canSelectFiles: false, canSelectMany: false,
-        openLabel: 'Select build folder',
-    });
-    return folders?.[0]?.fsPath ?? null;
 }
 
 async function pickTarget(): Promise<string | undefined> {
