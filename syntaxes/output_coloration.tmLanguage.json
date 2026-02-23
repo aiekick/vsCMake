@@ -127,11 +127,6 @@
             "match": "(?i)\\bnote:\\b",
             "name": "comment.note.vscmake"
         },
-        "cmake-status": {
-            "comment": "CMake status messages (-- ...)",
-            "match": "^--\\s+.*$",
-            "name": "comment.line.cmake-status.vscmake"
-        },
         "cmake-target": {
             "comment": "Target names in build messages",
             "match": "(?<=Built target |Linking [A-Z]+ (?:static |shared )?library |Linking [A-Z]+ executable )\\S+",
