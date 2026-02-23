@@ -1,7 +1,7 @@
 {
   "name": "vscmake",
   "displayName": "vsCMake",
-  "description": "CMake integration via File-Based API — no CMakeLists parsing",
+  "description": "CMake integration via CMake file Api. Configure, build, test and debug your CMake projects directly from VSCode.",
   "version": "0.1.0",
   "publisher": "aiekick",
   "engines": {
@@ -10,7 +10,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/aiekick/vscmake"
+    "url": "https://github.com/aiekick/vsCMake"
   },
   "categories": [
     "Other"
