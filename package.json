@@ -437,19 +437,24 @@
     "menus": {
       "view/title": [
         {
-          "command": "vsCMake.configure",
+          "command":"vsCMake.selectBuildDir",
           "when": "view == vsCMakeStatus",
           "group": "navigation@1"
         },
         {
-          "command": "vsCMake.deleteCacheAndReconfigure",
+          "command": "vsCMake.configure",
           "when": "view == vsCMakeStatus",
           "group": "navigation@2"
         },
         {
-          "command": "vsCMake.refresh",
+          "command": "vsCMake.deleteCacheAndReconfigure",
           "when": "view == vsCMakeStatus",
           "group": "navigation@3"
+        },
+        {
+          "command": "vsCMake.refresh",
+          "when": "view == vsCMakeStatus",
+          "group": "navigation@4"
         },
         {
           "command": "vsCMake.openSettings",
