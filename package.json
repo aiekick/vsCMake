@@ -16,7 +16,8 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished"
+    "workspaceContains:**/CMakeLists.txt",
+    "onLanguage:cmake"
   ],
   "main": "./out/extension.js",
   "scripts": {
