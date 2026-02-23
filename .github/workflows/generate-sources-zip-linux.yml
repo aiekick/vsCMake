@@ -1,4 +1,4 @@
-name: Generate Sources zip
+name: Generate Sources zip for linux
 
 on:
   workflow_dispatch:
