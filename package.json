@@ -23,7 +23,8 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "check": "tsc --noEmit"
+    "check": "tsc --noEmit",
+    "package": "node ./scripts/package.js"
   },
   "contributes": {
     "configuration": {
@@ -768,7 +769,8 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "@types/vscode": "^1.80.0",
-    "typescript": "^5.0.0"
+    "@types/vscode": "^1.109.0",
+    "archiver": "^7.0.1",
+    "typescript": "^5.9.3"
   }
 }

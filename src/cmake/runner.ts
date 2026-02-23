@@ -221,30 +221,20 @@ export class Runner {
         buildDir: string,
         targets: string[],
         config?: string,
-        cmakePath?: string
+        cmakePath?: string,
+        jobs?: number
     ): Promise<RunResult> {
         const cmd = cmakePath || 'cmake';
         const args = ['--build', buildDir];
         for (const t of targets) { args.push('--target', t); }
         args.push('--clean-first');
         if (config) { args.push('--config', config); }
+        if (jobs && jobs > 0) { args.push('-j', String(jobs)); }
         return this.run(cmd, args, buildDir);
     }
 
     async clean(buildDir: string, cmakePath?: string): Promise<RunResult> {
         return this.build(buildDir, 'clean', undefined, undefined, cmakePath);
-    }
-
-    async cleanAndBuildTarget(
-        buildDir: string,
-        target: string,
-        config?: string,
-        cmakePath?: string
-    ): Promise<RunResult> {
-        const cmd = cmakePath || 'cmake';
-        const args = ['--build', buildDir, '--target', target, '--clean-first'];
-        if (config) { args.push('--config', config); }
-        return this.run(cmd, args, buildDir);
     }
 
     async install(buildDir: string, prefix?: string, cmakePath?: string): Promise<RunResult> {

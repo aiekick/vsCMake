@@ -375,15 +375,15 @@ async function cmdSelectBuildDir(context: vscode.ExtensionContext): Promise<void
 }
 
 function getCmakePath(): string {
-    return vscode.workspace.getConfiguration('vsCMake').get<string>('cmakePath') || 'cmake';
+    return resolveSettingPath(vscode.workspace.getConfiguration('vsCMake').get<string>('cmakePath')) || '';
 }
 
 function getCtestPath(): string {
-    return vscode.workspace.getConfiguration('vsCMake').get<string>('ctestPath') || 'ctest';
+    return resolveSettingPath(vscode.workspace.getConfiguration('vsCMake').get<string>('ctestPath')) || '';
 }
 
 function getCpackPath(): string {
-    return vscode.workspace.getConfiguration('vsCMake').get<string>('cpackPath') || 'cpack';
+    return resolveSettingPath(vscode.workspace.getConfiguration('vsCMake').get<string>('cpackPath')) || '';
 }
 
 async function cmdConfigure(): Promise<void> {
@@ -536,8 +536,11 @@ async function cmdBuildTarget(node?: unknown): Promise<void> {
         targetName = await pickTarget();
     }
     if (!targetName) { return; }
-    const config = statusProvider?.currentConfig;
-    const result = await runner.build(buildDir, targetName, config || undefined);
+    const cmakePath = getCmakePath();
+    const config = statusProvider?.currentConfig || undefined;
+    const jobs = statusProvider?.currentBuildJobs || 0;
+    const presetName = statusProvider?.currentBuildPreset || undefined;
+    const result = await runner.build(buildDir, targetName, config, presetName, cmakePath, jobs);
     if (!result.success && !result.cancelled) {
         vscode.window.showErrorMessage(`vsCMake: build of '${targetName}' failed (code ${result.code})`);
     }
@@ -558,7 +561,7 @@ async function cmdRebuildTarget(node?: unknown): Promise<void> {
     if (!targetName) { return; }
     const cmakePath = getCmakePath();
     const config = statusProvider?.currentConfig;
-    const result = await runner.cleanAndBuildTarget(buildDir, targetName, config || undefined, cmakePath);
+    const result = await runner.cleanAndBuildTargets(buildDir, [targetName], config || undefined, cmakePath);
     if (!result.success && !result.cancelled) {
         vscode.window.showErrorMessage(`vsCMake: rebuild of '${targetName}' failed (code ${result.code})`);
     }
@@ -583,7 +586,8 @@ async function cmdRebuildImpactedSection(node?: unknown): Promise<void> {
     if (!targets.length) { return; }
     const cmakePath = getCmakePath();
     const config = statusProvider?.currentConfig;
-    const result = await runner.cleanAndBuildTargets(buildDir, targets, config || undefined, cmakePath);
+    const jobs = statusProvider?.currentBuildJobs || 0;
+    const result = await runner.cleanAndBuildTargets(buildDir, targets, config || undefined, cmakePath, jobs);
     if (!result.success && !result.cancelled) {
         vscode.window.showErrorMessage(`vsCMake: rebuild of section failed (code ${result.code})`);
     }
