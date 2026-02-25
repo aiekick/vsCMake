@@ -10,9 +10,10 @@ import {
 // Nodes
 // ------------------------------------------------------------
 type SectionId = 'sources' | 'cmakeExtras';
-type ExtrasId = 'includes' | 'compileFlags' | 'linkFlags' | 'libraries' | 'dependencies' | 'cmakeFiles';
+type ExtrasId = 'includes' | 'compileFlags' | 'linkFlags' | 'libraries' | 'dependencies';
 
-interface RootFileNode { kind: 'rootFile'; target: Target; label: string; filePath: string; }
+interface ProjectNode { kind: 'project'; name: string; }
+interface RootFileNode { kind: 'rootFile'; target: Target | null; label: string; filePath: string; }
 interface FolderNode { kind: 'folder'; name: string; fullPath: string; targets: Target[]; subFolders: FolderNode[]; }
 interface TargetNode { kind: 'target'; target: Target; }
 interface TargetCmakeNode { kind: 'targetCmake'; target: Target; filePath: string; line: number; }
@@ -28,7 +29,7 @@ interface LibNode { kind: 'library'; target: Target; fragment: string; role: str
 interface OutlineFilterNode { kind: 'outlineFilter'; }
 
 type TreeNode =
-    | OutlineFilterNode
+    | OutlineFilterNode | ProjectNode
     | RootFileNode | FolderNode | TargetNode | TargetCmakeNode
     | SectionNode | ExtrasGroupNode
     | SourceNode | IncludeNode | FlagNode | CmakeFileNode
@@ -53,7 +54,6 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
 
     private config: Configuration | null = null;
     private targetMap = new Map<string, Target>();
-    private cmakeFiles: string[] = [];
     private rootNodes: TreeNode[] = [];
     private projectSourceDir = '';
     private filter = '';
@@ -62,27 +62,23 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
     private lastCodemodel: Codemodel | null = null;
     private lastTargets: Target[] = [];
     private lastActiveConfig = '';
-    private lastCmakeFiles: string[] = [];
 
-    refresh(codemodel: Codemodel, targets: Target[], activeConfig: string, cmakeFiles: string[]): void {
+    refresh(codemodel: Codemodel, targets: Target[], activeConfig: string): void {
         this.lastCodemodel = codemodel;
         this.lastTargets = targets;
         this.lastActiveConfig = activeConfig;
-        this.lastCmakeFiles = cmakeFiles;
         this.rebuildTree();
     }
 
     clear(): void {
         this.config = null;
         this.targetMap.clear();
-        this.cmakeFiles = [];
         this.rootNodes = [];
         this.projectSourceDir = '';
         this.filter = '';
         this.lastCodemodel = null;
         this.lastTargets = [];
         this.lastActiveConfig = '';
-        this.lastCmakeFiles = [];
         this.parentMap = new WeakMap();
         this.childrenCache = new WeakMap();
         this._onDidChangeTreeData.fire();
@@ -121,7 +117,6 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
             c => (c.name || '(default)') === this.lastActiveConfig
         ) ?? this.lastCodemodel.configurations[0] ?? null;
 
-        this.cmakeFiles = this.lastCmakeFiles;
         this.rootNodes = this.buildRootNodes();
         this.parentMap = new WeakMap();
         this.childrenCache = new WeakMap();
@@ -135,6 +130,7 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
     getTreeItem(node: TreeNode): vscode.TreeItem {
         switch (node.kind) {
             case 'outlineFilter': return this.outlineFilterItem();
+            case 'project': return this.projectItem(node);
             case 'rootFile': return this.rootFileItem(node);
             case 'folder': return this.folderItem(node);
             case 'target': return this.targetItem(node);
@@ -164,6 +160,7 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
 
         let children: TreeNode[];
         switch (node.kind) {
+            case 'project': children = this.projectChildren(); break;
             case 'folder': children = this.folderChildren(node); break;
             case 'target': children = this.targetChildren(node); break;
             case 'section': children = this.sectionChildren(node); break;
@@ -210,6 +207,19 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
 
         const filterNode: OutlineFilterNode = { kind: 'outlineFilter' };
 
+        // Find root project name from codemodel
+        const rootProject = this.config.projects?.find(p => p.parent === undefined)
+            ?? this.config.projects?.[0];
+        const projectName = rootProject?.name ?? 'Project';
+
+        const projectNode: ProjectNode = { kind: 'project', name: projectName };
+
+        return [filterNode, projectNode];
+    }
+
+    private projectChildren(): TreeNode[] {
+        if (!this.config) { return []; }
+
         const seen = new Set<string>();
         let targets = this.config.targets
             .filter(ref => { if (seen.has(ref.id)) { return false; } seen.add(ref.id); return true; })
@@ -232,15 +242,18 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
         const folderNodes = this.buildFolderTree(withFolder);
         this.pruneEmptyFolders(folderNodes);
 
+        // Root cmake files at the end
+        const rootCMakeNodes = this.buildRootFileNodes();
+
         return [
-            filterNode,
             ...folderNodes,
             ...withoutFolder.map(t => ({ kind: 'target' as const, target: t })),
+            ...rootCMakeNodes
         ];
     }
 
-    /** Special CMake files displayed at the outline root */
-    private buildRootFileNodes(target: Target): RootFileNode[] {
+    /** Root-level CMake files (CMakeLists.txt, CMakePresets.json, CMakeUserPresets.json) */
+    private buildRootFileNodes(): RootFileNode[] {
         const nodes: RootFileNode[] = [];
         const candidates = [
             'CMakeLists.txt',
@@ -250,7 +263,7 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
         for (const name of candidates) {
             const fullPath = path.join(this.projectSourceDir, name);
             if (fs.existsSync(fullPath)) {
-                nodes.push({ kind: 'rootFile', target, label: name, filePath: fullPath });
+                nodes.push({ kind: 'rootFile', target: null, label: name, filePath: fullPath });
             }
         }
         return nodes;
@@ -315,7 +328,17 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
         // Sources
         children.push(...this.buildSourceTree(t));
 
+        // Target-specific CMake files at the end
+        children.push(...this.buildTargetCmakeFileNodes(t));
+
         return children;
+    }
+
+    /** CMakeLists.txt where the target is defined (add_executable / add_library) */
+    private buildTargetCmakeFileNodes(target: Target): TreeNode[] {
+        const loc = this.resolveTargetLocation(target);
+        if (!loc) { return []; }
+        return [{ kind: 'targetCmake', target, filePath: loc.file, line: loc.line }];
     }
 
     // ------------------------------------------------------------
@@ -431,30 +454,17 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
     private extrasNodes(target: Target): TreeNode[] {
         const groups: TreeNode[] = [];
 
-        // Sous-groupes classiques
         const extras: { id: ExtrasId; label: string; icon: string; show: boolean }[] = [
             { id: 'includes', label: 'Include Dirs', icon: 'file-symlink-directory', show: this.hasIncludes(target) },
             { id: 'compileFlags', label: 'Flags', icon: 'symbol-operator', show: this.hasCompileFlags(target) },
             { id: 'linkFlags', label: 'Link Flags', icon: 'link', show: this.hasLinkFlags(target) },
             { id: 'libraries', label: 'Libraries', icon: 'references', show: this.hasLibraries(target) },
             { id: 'dependencies', label: 'Dependencies', icon: 'type-hierarchy', show: (target.dependencies?.length ?? 0) > 0 },
-            { id: 'cmakeFiles', label: 'CMake Files', icon: 'file-code', show: this.cmakeFiles.length > 0 },
         ];
         for (const g of extras) {
             if (g.show) {
                 groups.push({ kind: 'extrasGroup' as const, label: g.label, icon: g.icon, target, extrasId: g.id });
             }
-        }
-
-        // Target CMakeLists.txt (where it is defined)
-        const loc = this.resolveTargetLocation(target);
-        if (loc) {
-            groups.push({ kind: 'targetCmake', target, filePath: loc.file, line: loc.line });
-        }
-
-        // Root CMake files (CMakeLists.txt, CMakePresets.json, CMakeUserPresets.json)
-        for (const node of this.buildRootFileNodes(target)) {
-            groups.push(node);
         }
 
         return groups;
@@ -467,7 +477,6 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
             case 'linkFlags': return this.linkFlagNodes(node.target);
             case 'libraries': return this.libraryNodes(node.target);
             case 'dependencies': return this.dependencyNodes(node.target);
-            case 'cmakeFiles': return this.cmakeFileNodes(node.target);
         }
     }
 
@@ -543,14 +552,6 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
     }
 
     // ------------------------------------------------------------
-    // CMake files
-    // ------------------------------------------------------------
-
-    private cmakeFileNodes(target: Target): CmakeFileNode[] {
-        return this.cmakeFiles.map(p => ({ kind: 'cmakefile' as const, target, path: p }));
-    }
-
-    // ------------------------------------------------------------
     // TreeItems
     // ------------------------------------------------------------
 
@@ -568,10 +569,18 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
         return item;
     }
 
+    private projectItem(node: ProjectNode): vscode.TreeItem {
+        const item = new vscode.TreeItem(node.name, vscode.TreeItemCollapsibleState.Expanded);
+        item.id = `project:${node.name}`;
+        item.iconPath = new vscode.ThemeIcon('project');
+        item.contextValue = 'outlineProject';
+        return item;
+    }
+
     private rootFileItem(node: RootFileNode): vscode.TreeItem {
         const uri = vscode.Uri.file(node.filePath);
         const item = new vscode.TreeItem(node.label, vscode.TreeItemCollapsibleState.None);
-        item.id = `rootFile:${node.target.id}:${node.label}`;
+        item.id = `rootFile:${node.target?.id ?? 'root'}:${node.label}`;
         item.resourceUri = uri;
         item.contextValue = 'outlineRootFile';
         item.command = { command: 'vsCMake.openFile', title: 'Open', arguments: [uri] };
@@ -766,7 +775,7 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
         const search = (nodes: TreeNode[]): TreeNode | null => {
             for (const n of nodes) {
                 if (n.kind === 'target' && n.target.id === targetId) { return n; }
-                if (n.kind === 'folder') {
+                if (n.kind === 'folder' || n.kind === 'project') {
                     // Force getChildren to populate cache/parentMap
                     const children = this.getChildren(n);
                     const found = search(children);
@@ -807,9 +816,6 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
             || this.hasCompileFlags(t)
             || this.hasLinkFlags(t)
             || this.hasLibraries(t)
-            || (t.dependencies?.length ?? 0) > 0
-            || this.cmakeFiles.length > 0
-            || this.resolveTargetLocation(t) !== null
-            || this.buildRootFileNodes(t).length > 0;
+            || (t.dependencies?.length ?? 0) > 0;
     }
 }

@@ -1,8 +1,7 @@
 import { spawn, ChildProcess } from 'child_process';
 import * as vscode from 'vscode';
 import * as os from 'os';
-import { isWindows, isClInPath, captureVcvarsEnv, MsvcArch, findDefaultVcvarsall } from './msvc_env';
-import { Kit } from './kit_scanner';
+import { isWindows, isClInPath, captureVcvarsEnv, findDefaultVcvarsall } from './msvc_env';
 import { CMakeDiagnosticsManager } from './cmake_diagnostics_manager';
 
 // ------------------------------------------------------------
@@ -38,7 +37,6 @@ export class Runner {
     private tasks = new Map<number, RunningTask>();
     private nextId = 1;
     private msvcEnv: Record<string, string> | null | undefined = undefined;
-    private activeKit: Kit | undefined = undefined;
     private state: vscode.Memento | undefined;
     private diagnosticsManager: CMakeDiagnosticsManager | undefined;
 
@@ -77,15 +75,6 @@ export class Runner {
     }
 
     // --------------------------------------------------------
-    // Active kit
-    // --------------------------------------------------------
-
-    setActiveKit(kit: Kit | undefined): void {
-        this.activeKit = kit;
-        this.msvcEnv = undefined;
-    }
-
-    // --------------------------------------------------------
     // MSVC Environment (Windows only)
     // --------------------------------------------------------
 
@@ -100,18 +89,6 @@ export class Runner {
             this.msvcEnv = null;
             this.persistMsvcEnv();
             return undefined;
-        }
-
-        if (this.activeKit?.vcvarsall && this.activeKit?.vcvarsArch) {
-            const env = captureVcvarsEnv(this.activeKit.vcvarsall, this.activeKit.vcvarsArch);
-            if (env) {
-                this.channel.appendLine(
-                    `ℹ vsCMake: MSVC environment injected (${this.activeKit.name})`
-                );
-                this.msvcEnv = env;
-                this.persistMsvcEnv();
-                return env;
-            }
         }
 
         const auto = findDefaultVcvarsall();
@@ -134,15 +111,6 @@ export class Runner {
 
     private persistMsvcEnv(): void {
         this.state?.update(Runner.MSVC_STATE_KEY, this.msvcEnv);
-    }
-
-    resetMsvcEnv(): void {
-        this.msvcEnv = undefined;
-    }
-
-    clearPersistedMsvcEnv(): void {
-        this.msvcEnv = undefined;
-        this.state?.update(Runner.MSVC_STATE_KEY, undefined);
     }
 
     // --------------------------------------------------------
