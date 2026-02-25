@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { ApiClient, CmakeReply } from './cmake/api_client';
-import { Runner, RunResult } from './cmake/runner';
+import { Runner } from './cmake/runner';
 import { ReplyWatcher } from './watchers/reply_watcher';
 import { ProjectOutlineProvider } from './providers/project_outline_provider';
 import { ConfigProvider } from './providers/config_provider';
@@ -200,13 +200,10 @@ async function loadReply(): Promise<void> {
         // Show/hide config selector button based on multi-config
         await vscode.commands.executeCommand('setContext', 'vsCMake.multiConfig', availableConfigs.length > 1);
 
-        const cmakeInputs = lastReply.cmakeFiles.inputs.map(i => i.path);
-
         outlineProvider!.refresh(
             lastReply.codemodel,
             lastReply.targets,
-            currentConfig,
-            cmakeInputs
+            currentConfig
         );
 
         configProvider!.refresh(lastReply.cache);
@@ -257,12 +254,10 @@ async function cmdSelectConfig(): Promise<void> {
 
     // Refresh all panes with new config
     if (lastReply) {
-        const cmakeInputs = lastReply.cmakeFiles.inputs.map(i => i.path);
         outlineProvider!.refresh(
             lastReply.codemodel,
             lastReply.targets,
-            currentConfig,
-            cmakeInputs
+            currentConfig
         );
         configProvider!.refresh(lastReply.cache);
         const src = lastReply.codemodel.paths?.source || '';
@@ -499,12 +494,23 @@ async function cmdExpandAllOutline(): Promise<void> {
     if (!outlineProvider || !outlineView) { return; }
     const roots = outlineProvider.getChildren();
     for (const node of roots) {
-        if ('kind' in node && (node.kind === 'folder' || node.kind === 'target')) {
+        if (!('kind' in node)) { continue; }
+        if (node.kind === 'project') {
+            // Expand the project node and its children
             try {
                 await (outlineView as vscode.TreeView<unknown>).reveal(node, {
                     expand: 2, select: false, focus: false,
                 });
             } catch { /* node may not be revealable */ }
+            for (const child of outlineProvider.getChildren(node)) {
+                if ('kind' in child && (child.kind === 'folder' || child.kind === 'target')) {
+                    try {
+                        await (outlineView as vscode.TreeView<unknown>).reveal(child, {
+                            expand: 2, select: false, focus: false,
+                        });
+                    } catch { /* node may not be revealable */ }
+                }
+            }
         }
     }
 }
