@@ -9,6 +9,7 @@ import { CacheEntry, CtestShowOnlyResult } from './cmake/types';
 import { CMakeDiagnosticsManager } from './cmake/cmake_diagnostics_manager';
 import { CMakeFileDecorationProvider } from './providers/cmake_file_decoration_provider';
 import { ImpactedTargetsProvider } from './providers/impacted_targets_provider';
+import { CMakeToolsIntegrationManager } from './misc/cmake_tools_api';
 
 // ------------------------------------------------------------
 // Types
@@ -141,6 +142,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     context.subscriptions.push(outlineView, configView, impactedView, runner);
 
+    const cmakeManager = new CMakeToolsIntegrationManager((buildDir, buildType) => {
+        initBuildDir(buildDir, context);
+        updateAllPanesWithConfig(buildType);
+        console.log(`CMake new configure on ${buildDir} with Build Type : ${buildType}`);
+    });
+    cmakeManager.watch(context);
+    context.subscriptions.push(cmakeManager);
+
     // Restore persisted config
     currentConfig = wsState.get<string>(ACTIVE_CONFIG_STATE_KEY) || 'Release';
 
@@ -249,10 +258,12 @@ async function cmdSelectConfig(): Promise<void> {
         placeHolder: 'Select the active configuration',
     });
     if (!picked) { return; }
-    currentConfig = picked.label;
-    wsState?.update(ACTIVE_CONFIG_STATE_KEY, currentConfig);
+    updateAllPanesWithConfig(picked.label);
+}
 
-    // Refresh all panes with new config
+async function updateAllPanesWithConfig(config: string): Promise<void> {
+    currentConfig = config;
+    wsState?.update(ACTIVE_CONFIG_STATE_KEY, currentConfig);
     if (lastReply) {
         outlineProvider!.refresh(
             lastReply.codemodel,
@@ -263,6 +274,7 @@ async function cmdSelectConfig(): Promise<void> {
         const src = lastReply.codemodel.paths?.source || '';
         impactedProvider!.refresh(lastReply.targets, src);
     }
+
 }
 
 // ------------------------------------------------------------

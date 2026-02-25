@@ -539,6 +539,9 @@
       }
     ]
   },
+  "dependencies": {
+    "vscode-cmake-tools": "^1.5.0"
+  },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.80.0",
