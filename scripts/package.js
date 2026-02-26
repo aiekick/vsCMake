@@ -106,7 +106,7 @@ const filesToInclude = [
 // Liste des dossiers à inclure
 const foldersToInclude = [
     'images',
-    'out',
+    'dist',
     'syntaxes'
 ];
 

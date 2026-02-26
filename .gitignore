@@ -3,3 +3,4 @@ node_modules
 /.claude
 /.vscode/settings.json
 /build
+/dist

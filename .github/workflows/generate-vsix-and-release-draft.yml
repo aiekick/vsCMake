@@ -2,11 +2,6 @@ name: Generate Vsix + Release draft
 
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Release version tag (e.g. v1.0.0)'
-        required: true
-        type: string
 
 jobs:
   release:
@@ -24,17 +19,14 @@ jobs:
           node-version: '20'
       - name: Install dependencies
         run: npm install
-      - name: Install vsce
-        run: npm install -g @vscode/vsce
       - name: Compile TypeScript
         run: npm run compile
       - name: Package VSIX
-        run: vsce package -o vsCMake-${{ inputs.version }}.vsix
+        run: npm run package
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.version }}
-          name: vsCMake ${{ inputs.version }}
-          files: vsCMake-${{ inputs.version }}.vsix
+          name: vsCMake
+          files: vsCMake-*.vsix
           generate_release_notes: true
           draft: true

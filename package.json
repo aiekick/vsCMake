@@ -19,12 +19,13 @@
     "workspaceContains:**/CMakeLists.txt",
     "onLanguage:cmake"
   ],
-  "main": "./out/extension.js",
+  "main": "./dist/extension.js",
   "scripts": {
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
     "check": "tsc --noEmit",
-    "package": "node ./scripts/package.js"
+    "compile": "node ./scripts/esbuild.js",
+    "package": "node ./scripts/package.js",
+    "custom-prepublish": "node ./scripts/esbuild.js --production",
+    "watch": "node ./scripts/esbuild.js --watch"
   },
   "contributes": {
     "configuration": {
@@ -546,6 +547,7 @@
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.80.0",
     "archiver": "^7.0.1",
+    "esbuild": "^0.27.3",
     "typescript": "^5.9.3"
   }
 }
