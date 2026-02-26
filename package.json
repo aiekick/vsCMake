@@ -2,7 +2,7 @@
   "name": "vscmake",
   "displayName": "vsCMake",
   "description": "CMake build explorer via CMake file Api. Build, test and browse your CMake projects directly from VSCode.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "aiekick",
   "engines": {
     "vscode": "^1.80.0"
@@ -19,14 +19,6 @@
     "workspaceContains:**/CMakeLists.txt",
     "onLanguage:cmake"
   ],
-  "main": "./dist/extension.js",
-  "scripts": {
-    "check": "tsc --noEmit",
-    "compile": "node ./scripts/esbuild.js",
-    "package": "node ./scripts/package.js",
-    "custom-prepublish": "node ./scripts/esbuild.js --production",
-    "watch": "node ./scripts/esbuild.js --watch"
-  },
   "contributes": {
     "configuration": {
       "title": "vsCMake",
@@ -65,6 +57,12 @@
           "type": "boolean",
           "default": true,
           "description": "Enable syntax highlighting in the vsCMake output panel"
+        },
+        "vsCMake.graphEdgeDirection": {
+          "type": "string",
+          "enum": ["dependency", "inverse"],
+          "default": "dependency",
+          "description": "Edge arrow direction: toward dependency or inverse"
         }
       }
     },
@@ -93,6 +91,11 @@
           "id": "vsCMakeImpacted",
           "name": "Impacted Targets",
           "icon": "$(target)"
+        },
+        {
+          "id": "vsCMakeDependencyGraph",
+          "name": "Dependency Graph",
+          "type": "webview"
         }
       ]
     },
@@ -300,6 +303,30 @@
         "title": "Run all tests in section",
         "category": "CMake",
         "icon": "$(beaker)"
+      },
+      {
+        "command": "vsCMake.toggleGraphLayout",
+        "title": "Toggle layout (hierarchical / force-directed)",
+        "category": "CMake",
+        "icon": "$(layout)"
+      },
+      {
+        "command": "vsCMake.refreshDependencyGraph",
+        "title": "Refresh",
+        "category": "CMake",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "vsCMake.graphSettings",
+        "title": "Graph Settings",
+        "category": "CMake",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "vsCMake.graphScreenshot",
+        "title": "Screenshot Graph",
+        "category": "CMake",
+        "icon": "$(device-camera)"
       }
     ],
     "menus": {
@@ -418,6 +445,26 @@
           "command": "vsCMake.openSettings",
           "when": "view == vsCMakeImpacted",
           "group": "navigation@8"
+        },
+        {
+          "command": "vsCMake.refreshDependencyGraph",
+          "when": "view == vsCMakeDependencyGraph",
+          "group": "navigation@1"
+        },
+        {
+          "command": "vsCMake.graphSettings",
+          "when": "view == vsCMakeDependencyGraph",
+          "group": "1_graph@1"
+        },
+        {
+          "command": "vsCMake.graphScreenshot",
+          "when": "view == vsCMakeDependencyGraph",
+          "group": "1_graph@2"
+        },
+        {
+          "command": "vsCMake.openSettings",
+          "when": "view == vsCMakeDependencyGraph",
+          "group": "2_settings@1"
         }
       ],
       "view/item/context": [
@@ -540,7 +587,16 @@
       }
     ]
   },
+  "main": "./out/extension.js",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "compile": "tsc -p ./",
+    "package": "node ./scripts/esbuild.js && node ./scripts/package.js",
+    "watch": "tsc -watch -p ./"
+  },
   "dependencies": {
+    "vis-data": "^8.0.3",
+    "vis-network": "^10.0.2",
     "vscode-cmake-tools": "^1.5.0"
   },
   "devDependencies": {

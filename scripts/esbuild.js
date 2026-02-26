@@ -4,7 +4,8 @@ const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
 
 async function main() {
-    const ctx = await esbuild.context({
+    // Extension (Node) context
+    const extCtx = await esbuild.context({
         entryPoints: ['src/extension.ts'],
         bundle: true,
         format: 'cjs',
@@ -12,19 +13,31 @@ async function main() {
         sourcemap: !production,
         sourcesContent: false,
         platform: 'node',
-        outfile: 'dist/extension.js',
+        outfile: 'out/extension.js',
         external: ['vscode'],
         logLevel: 'warning',
-        plugins: [
-            /* add to the end of plugins array */
-            esbuildProblemMatcherPlugin
-        ]
+        plugins: [esbuildProblemMatcherPlugin]
     });
+
+    // Webview (Browser) context — bundles vis-network into a single IIFE file
+    const webCtx = await esbuild.context({
+        entryPoints: ['src/webview/dependency_graph_webview.ts'],
+        bundle: true,
+        format: 'iife',
+        minify: production,
+        sourcemap: false,
+        sourcesContent: false,
+        platform: 'browser',
+        outfile: 'dist/dependency_graph_webview.js',
+        logLevel: 'warning',
+        plugins: [esbuildProblemMatcherPlugin]
+    });
+
     if (watch) {
-        await ctx.watch();
+        await Promise.all([extCtx.watch(), webCtx.watch()]);
     } else {
-        await ctx.rebuild();
-        await ctx.dispose();
+        await Promise.all([extCtx.rebuild(), webCtx.rebuild()]);
+        await Promise.all([extCtx.dispose(), webCtx.dispose()]);
     }
 }
 

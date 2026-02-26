@@ -9,6 +9,7 @@ import { CacheEntry, CtestShowOnlyResult } from './cmake/types';
 import { CMakeDiagnosticsManager } from './cmake/cmake_diagnostics_manager';
 import { CMakeFileDecorationProvider } from './providers/cmake_file_decoration_provider';
 import { ImpactedTargetsProvider } from './providers/impacted_targets_provider';
+import { DependencyGraphProvider } from './providers/dependency_graph_provider';
 import { CMakeToolsIntegrationManager } from './misc/cmake_tools_api';
 
 // ------------------------------------------------------------
@@ -28,6 +29,7 @@ let replyWatcher: ReplyWatcher | null = null;
 let outlineProvider: ProjectOutlineProvider | null = null;
 let configProvider: ConfigProvider | null = null;
 let impactedProvider: ImpactedTargetsProvider | null = null;
+let graphProvider: DependencyGraphProvider | null = null;
 let configView: vscode.TreeView<unknown> | null = null;
 let outlineView: vscode.TreeView<unknown> | null = null;
 let impactedView: vscode.TreeView<unknown> | null = null;
@@ -91,6 +93,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         showCollapseAll: false,
     });
 
+    graphProvider = new DependencyGraphProvider(context.extensionUri);
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(
+            DependencyGraphProvider.viewId,
+            graphProvider,
+            { webviewOptions: { retainContextWhenHidden: true } },
+        ),
+    );
+
     // Update impacted targets when active editor changes
     impactedProvider.setActiveFile(
         vscode.window.activeTextEditor?.document.uri.fsPath ?? null
@@ -134,6 +145,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         ['vsCMake.copySectionToClipboard', (...args: unknown[]) => cmdCopySectionToClipboard(args)],
         ['vsCMake.revealDependency', (node: unknown) => cmdRevealDependency(node)],
         ['vsCMake.openSettings', cmdOpenSettings],
+        ['vsCMake.toggleGraphLayout', () => graphProvider?.toggleLayout()],
+        ['vsCMake.refreshDependencyGraph', cmdRefresh],
+        ['vsCMake.graphSettings', () => graphProvider?.showSettings()],
+        ['vsCMake.graphScreenshot', () => graphProvider?.screenshot()],
     ];
 
     for (const [id, handler] of cmds) {
@@ -221,6 +236,8 @@ async function loadReply(): Promise<void> {
         const src = lastReply.codemodel.paths?.source || '';
         impactedProvider!.refresh(lastReply.targets, src);
 
+        graphProvider?.refresh(lastReply.targets);
+
         await refreshAvailableTests();
 
     } catch (err) {
@@ -273,6 +290,8 @@ async function updateAllPanesWithConfig(config: string): Promise<void> {
         configProvider!.refresh(lastReply.cache);
         const src = lastReply.codemodel.paths?.source || '';
         impactedProvider!.refresh(lastReply.targets, src);
+
+        graphProvider?.refresh(lastReply.targets);
     }
 
 }

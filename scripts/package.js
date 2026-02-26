@@ -107,7 +107,8 @@ const filesToInclude = [
 const foldersToInclude = [
     'images',
     'dist',
-    'syntaxes'
+    'syntaxes',
+    'media'
 ];
 
 // Ajoutez les fichiers individuels
