@@ -14,7 +14,7 @@ jobs:
         with:
           node-version: '20'
       - name: Install dependencies
-        run: npm install --save-dev typescript @types/vscode archiver --ignore-scripts
+        run: npm install --save-dev typescript @types/vscode archiver vscode-cmake-tools --ignore-scripts
       - name: Create ZIP
         run: Compress-Archive -Path .\* -DestinationPath .\vsCMake-project.zip
       - name: Upload artifact
