@@ -29,7 +29,7 @@ jobs:
       - name: Compile TypeScript
         run: npm run compile
       - name: Package VSIX
-        run: vsce package --no-dependencies -o vsCMake-${{ inputs.version }}.vsix
+        run: vsce package -o vsCMake-${{ inputs.version }}.vsix
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
