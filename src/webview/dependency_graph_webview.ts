@@ -38,9 +38,9 @@ let layoutNodes: LayoutNode[] = [];
 let activeFilters = new Set<string>();
 let selectedNodeId: string | null = null;
 let edgeStyle: 'tapered' | 'chevrons' | 'line' = 'tapered';
-let edgeDirection: 'dependency' | 'inverse' = 'dependency';
+let edgeDirection: 'parent-to-child' | 'child-to-parent' = 'child-to-parent';
 let simEnabled = true;       // user toggle: allows/prevents sim from running
-let autoPauseDuringDrag = false;
+let autoPauseDuringDrag = true;
 
 const TARGET_TYPES = [
     'EXECUTABLE', 'STATIC_LIBRARY', 'SHARED_LIBRARY',
@@ -48,8 +48,8 @@ const TARGET_TYPES = [
 ];
 
 // Node sizing
-const NODE_H = 34;
-const NODE_PAD_X = 20;
+const NODE_H = 25;
+const NODE_PAD_X = 10;
 const NODE_MIN_W = 60;
 
 // Canvas / camera state
@@ -59,7 +59,7 @@ let camX = 0;
 let camY = 0;
 let zoom = 1;
 const ZOOM_MIN = 0.05;
-const ZOOM_MAX = 5;
+const ZOOM_MAX = 10;
 const GRID_SIZE = 40;
 
 // Interaction state
@@ -78,11 +78,11 @@ let firstLayout = true;
 // Force simulation parameters (defaults)
 // ------------------------------------------------------------
 const SIM_DEFAULTS: Record<string, number> = {
-    repulsion: 5000,
-    attraction: 0.01,
+    repulsion: 100000,
+    attraction: 0.0001,
     gravity: 0.02,
-    minDistance: 80,
-    stepsPerFrame: 5,
+    minDistance: 300,
+    stepsPerFrame: 1,
     threshold: 0.5,
     damping: 0.85,
 };
@@ -262,13 +262,13 @@ function drawEdgeStyled(
 ): void {
     // Swap direction if inverted
     let sx1 = x1, sy1 = y1, sx2 = x2, sy2 = y2;
-    if (edgeDirection === 'inverse') {
+    if (edgeDirection === 'child-to-parent') {
         sx1 = x2; sy1 = y2; sx2 = x1; sy2 = y1;
     }
     switch (edgeStyle) {
-        case 'tapered':  drawTaperedEdge(c, sx1, sy1, sx2, sy2, color, alpha); break;
+        case 'tapered': drawTaperedEdge(c, sx1, sy1, sx2, sy2, color, alpha); break;
         case 'chevrons': drawChevronEdge(c, sx1, sy1, sx2, sy2, color, alpha); break;
-        case 'line':     drawLineEdge(c, sx1, sy1, sx2, sy2, color, alpha); break;
+        case 'line': drawLineEdge(c, sx1, sy1, sx2, sy2, color, alpha); break;
     }
 }
 
@@ -980,17 +980,17 @@ function buildSettingsHtml(): string {
         </label>
         <label class="settings-inline">Direction
             <select id="s-edgeDirection">
-                <option value="dependency"${edgeDirection === 'dependency' ? ' selected' : ''}>Toward dependency</option>
-                <option value="inverse"${edgeDirection === 'inverse' ? ' selected' : ''}>Inverse</option>
+                <option value="parent-to-child"${edgeDirection === 'parent-to-child' ? ' selected' : ''}>Parents to childs</option>
+                <option value="child-to-parent"${edgeDirection === 'child-to-parent' ? ' selected' : ''}>Childs to parents</option>
             </select>
         </label>
     </div>
     <div class="settings-section">
         <div class="settings-title">Force Simulation</div>
         ${sliderRow('repulsion', 'Repulsion', 500, 100000, 500, simRepulsion, SIM_DEFAULTS.repulsion)}
-        ${sliderRow('attraction', 'Attraction', 0.001, 0.1, 0.001, simAttraction, SIM_DEFAULTS.attraction)}
+        ${sliderRow('attraction', 'Attraction', 0.0001, 0.05, 0.001, simAttraction, SIM_DEFAULTS.attraction)}
         ${sliderRow('gravity', 'Gravity', 0.001, 0.2, 0.001, simGravity, SIM_DEFAULTS.gravity)}
-        ${sliderRow('minDist', 'Min Distance', 20, 300, 10, simMinDistance, SIM_DEFAULTS.minDistance)}
+        ${sliderRow('minDist', 'Min Distance', 20, 5000, 10, simMinDistance, SIM_DEFAULTS.minDistance)}
         ${sliderRow('steps', 'Steps/Frame', 1, 20, 1, simStepsPerFrame, SIM_DEFAULTS.stepsPerFrame)}
         ${sliderRow('threshold', 'Threshold', 0.01, 5, 0.01, simThreshold, SIM_DEFAULTS.threshold)}
         ${sliderRow('damping', 'Damping', 0.5, 0.99, 0.01, simDamping, SIM_DEFAULTS.damping)}
