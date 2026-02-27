@@ -12,6 +12,7 @@ import { ImpactedTargetsProvider } from './providers/impacted_targets_provider';
 import { DependencyGraphProvider } from './providers/dependency_graph_provider';
 import { CMakeToolsIntegrationManager } from './misc/cmake_tools_api';
 import { computeDirectLinks } from './cmake/direct_links_converter';
+import { debugDirectLinks, debugMissingLinks, debugSignatures } from './cmake/debug_direct_links';
 // ------------------------------------------------------------
 // Types
 // ------------------------------------------------------------
@@ -218,6 +219,9 @@ async function loadReply(): Promise<void> {
         lastReply = await apiClient.loadAll();
 
         // compute direct links of targets
+        // debugDirectLinks(lastReply);
+        // debugMissingLinks(lastReply);
+        debugSignatures(lastReply);
         lastReply = computeDirectLinks(lastReply);
 
         // Detect available configurations
