@@ -217,8 +217,8 @@ async function loadReply(): Promise<void> {
     try {
         lastReply = await apiClient.loadAll();
 
-        // compute driect links of targets
-        lastReply = computeDirectLinks(lastReply, false /*agressive*/);
+        // compute direct links of targets
+        lastReply = computeDirectLinks(lastReply);
 
         // Detect available configurations
         availableConfigs = lastReply.codemodel.configurations.map(c => c.name || '(default)');

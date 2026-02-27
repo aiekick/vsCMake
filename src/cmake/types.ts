@@ -118,11 +118,11 @@ export interface Target {
     link?: Link;
     archive?: Archive;
     dependencies?: Dependency[];
-    directLinks?: string[];
     sources: Source[];
     sourceGroups?: SourceGroup[];
     compileGroups?: CompileGroup[];
     backtraceGraph?: BacktraceGraph;
+    directLinks?: string[];
 }
 
 export interface Artifact {
@@ -152,6 +152,7 @@ export interface Archive {
 }
 
 export interface CommandFragment {
+    backtrace?: number;
     fragment: string;
     role: 'flags' | 'libraries' | 'libraryPath' | 'frameworkPath';
 }

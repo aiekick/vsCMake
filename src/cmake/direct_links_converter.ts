@@ -1,114 +1,139 @@
 import { CmakeReply } from './api_client';
-import { Target } from './types';
+import { Target, BacktraceGraph } from './types';
 
 /**
- * For each target in the reply, compute `directLinks`:
- * the subset of `dependencies` that come from a direct
- * `target_link_libraries()` call (not transitive).
+ * For each target, compute `directLinks`: the IDs of targets that
+ * are directly linked via target_link_libraries(), excluding transitive.
  *
- * Two-pass approach:
- *  1. Filter deps whose backtrace command is `target_link_libraries`
- *  2. Transitive reduction: remove deps reachable through other deps
+ * Strategy: each link fragment has a backtrace resolved to (file, line).
+ * If a dependency has a fragment with the SAME (file, line) origin,
+ * then the link was inherited transitively. Otherwise it's direct.
  *
  * Mutates the targets in place and returns the same CmakeReply.
  */
-export function computeDirectLinks(reply: CmakeReply, agressive: Boolean): CmakeReply {
-    if (agressive) {
-        // --- Pass 1: filter by backtrace command ---
-        // Build a map id -> target for quick lookup
-        const byId = new Map<string, Target>();
-        for (const t of reply.targets) {
-            byId.set(t.id, t);
-        }
+export function computeDirectLinks(reply: CmakeReply): CmakeReply {
+    const artifactToId = buildArtifactMap(reply.targets);
+    const byId = new Map(reply.targets.map(t => [t.id, t]));
 
-        // For each target, find deps whose backtrace roots at target_link_libraries
-        const linkDepsMap = new Map<string, string[]>();
+    // Pre-compute link signatures for each target
+    // signature = "file_path:line" from backtrace of link fragments
+    const targetSigs = new Map<string, Set<string>>();
+    for (const t of reply.targets) {
+        targetSigs.set(t.id, getLinkSignatures(t));
+    }
 
-        for (const t of reply.targets) {
-            const linkDeps = filterLinkDeps(t);
-            linkDepsMap.set(t.id, linkDeps);
-        }
-
-        // --- Pass 2: transitive reduction ---
-        for (const t of reply.targets) {
-            const linkDeps = linkDepsMap.get(t.id) ?? [];
-
-            // Collect everything reachable transitively through each dep's own linkDeps
-            const transitive = new Set<string>();
-            for (const depId of linkDeps) {
-                collectTransitiveLinkDeps(depId, linkDepsMap, transitive, new Set());
-            }
-
-            // Keep only deps NOT reachable transitively
-            t.directLinks = linkDeps.filter(id => !transitive.has(id));
-        }
-    } else {
-        for (const t of reply.targets) {
-            t.directLinks = filterLinkDeps(t);
-        }
+    for (const t of reply.targets) {
+        t.directLinks = findDirectLinks(t, artifactToId, byId, targetSigs);
     }
     return reply;
 }
 
 /**
- * From a target's dependencies + backtraceGraph, return the IDs
- * whose backtrace command is "target_link_libraries".
+ * Get all (file, line) signatures from link fragments of a target.
  */
-function filterLinkDeps(t: Target): string[] {
-    if (!t.dependencies || !t.backtraceGraph) return [];
+function getLinkSignatures(t: Target): Set<string> {
+    const sigs = new Set<string>();
+    if (!t.link?.commandFragments || !t.backtraceGraph) return sigs;
+    const bg = t.backtraceGraph;
+    for (const frag of t.link.commandFragments) {
+        if (frag.role !== 'libraries' || frag.backtrace === undefined) continue;
+        const sig = resolveSignature(bg, frag.backtrace);
+        if (sig) sigs.add(sig);
+    }
+    return sigs;
+}
 
-    const { commands, nodes } = t.backtraceGraph;
-    const tllIdx = commands.indexOf('target_link_libraries');
+/**
+ * Resolve a backtrace index to a "file_path:line" string.
+ */
+function resolveSignature(bg: BacktraceGraph, nodeIdx: number): string | undefined {
+    const node = bg.nodes[nodeIdx];
+    if (!node || node.line === undefined) return undefined;
+    const file = bg.files[node.file];
+    if (!file) return undefined;
+    return normalizePath(file) + ':' + node.line;
+}
+
+function findDirectLinks(
+    t: Target,
+    artifactToId: Map<string, string>,
+    byId: Map<string, Target>,
+    targetSigs: Map<string, Set<string>>,
+): string[] {
+    if (!t.link?.commandFragments || !t.backtraceGraph) return [];
+
+    const bg = t.backtraceGraph;
+    const tllIdx = bg.commands.indexOf('target_link_libraries');
     if (tllIdx === -1) return [];
 
+    // Collect signatures from all dependencies
+    const depSigs = new Set<string>();
+    for (const dep of t.dependencies ?? []) {
+        const sigs = targetSigs.get(dep.id);
+        if (sigs) {
+            for (const s of sigs) depSigs.add(s);
+        }
+    }
+
     const result: string[] = [];
-    for (const dep of t.dependencies) {
-        if (dep.backtrace === undefined) continue;
-        if (isCommandInBacktrace(nodes, dep.backtrace, tllIdx)) {
-            result.push(dep.id);
+    const seen = new Set<string>();
+
+    for (const frag of t.link.commandFragments) {
+        if (frag.role !== 'libraries' || frag.backtrace === undefined) continue;
+
+        // Must be a target_link_libraries call
+        const node = bg.nodes[frag.backtrace];
+        if (!node || node.command !== tllIdx) continue;
+
+        // Check: does any dependency have a fragment with the same origin?
+        const sig = resolveSignature(bg, frag.backtrace);
+        if (sig && depSigs.has(sig)) continue; // transitive
+
+        // Resolve fragment to a target ID
+        const id = findTargetByFragment(normalizePath(frag.fragment), artifactToId);
+        if (id && id !== t.id && !seen.has(id)) {
+            seen.add(id);
+            result.push(id);
         }
     }
     return result;
 }
 
-/**
- * Walk the backtrace chain from `nodeIdx` up to the root.
- * Returns true if any node in the chain has `command === cmdIdx`.
- */
-type Node = { command?: number; parent?: number };
+// ---- Helpers ----
 
-function isCommandInBacktrace(
-    nodes: Node[],
-    nodeIdx: number,
-    cmdIdx: number
-): boolean {
-    let idx: number | undefined = nodeIdx;
-    while (idx !== undefined) {
-        const n: Node = nodes[idx];
-        if (n.command === cmdIdx) return true;
-        idx = n.parent;
+function buildArtifactMap(targets: Target[]): Map<string, string> {
+    const m = new Map<string, string>();
+    for (const t of targets) {
+        for (const a of t.artifacts ?? []) {
+            m.set(normalizePath(a.path), t.id);
+        }
     }
-    return false;
+    return m;
 }
 
-/**
- * Recursively collect all link deps reachable from `id`,
- * excluding `id` itself on the first call.
- */
-function collectTransitiveLinkDeps(
-    id: string,
-    linkDepsMap: Map<string, string[]>,
-    result: Set<string>,
-    visited: Set<string>
-): void {
-    if (visited.has(id)) return;
-    visited.add(id);
-
-    const deps = linkDepsMap.get(id);
-    if (!deps) return;
-
-    for (const dep of deps) {
-        result.add(dep);
-        collectTransitiveLinkDeps(dep, linkDepsMap, result, visited);
+function findTargetByFragment(
+    fragPath: string,
+    artifactToId: Map<string, string>,
+): string | undefined {
+    for (const [artPath, id] of artifactToId) {
+        if (artPath === fragPath
+            || artPath.endsWith('/' + fragPath)
+            || fragPath.endsWith('/' + artPath)) {
+            return id;
+        }
     }
+    const fragBase = basename(fragPath);
+    for (const [artPath, id] of artifactToId) {
+        if (basename(artPath) === fragBase) return id;
+    }
+    return undefined;
+}
+
+function normalizePath(p: string): string {
+    return p.replace(/\\/g, '/');
+}
+
+function basename(p: string): string {
+    const i = p.lastIndexOf('/');
+    return i >= 0 ? p.substring(i + 1) : p;
 }
