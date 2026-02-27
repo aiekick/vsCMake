@@ -561,6 +561,10 @@ function attachCanvasEvents(c: HTMLCanvasElement): void {
         const hit = hitTestNode(mx, my);
         if (hit) {
             vscode.postMessage({ type: 'nodeDoubleClick', targetId: hit.node.id });
+        } else {
+            // Double-click on background: fit graph to view
+            centerOnNodes();
+            draw();
         }
     });
 
@@ -839,12 +843,16 @@ function resetLayoutPositions(): void {
 function centerOnNodes(): void {
     if (!canvas || layoutNodes.length === 0) { return; }
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let count = 0;
     for (const ln of layoutNodes) {
+        if (activeFilters.has(ln.node.type)) { continue; }
         minX = Math.min(minX, ln.x - ln.w / 2);
         maxX = Math.max(maxX, ln.x + ln.w / 2);
         minY = Math.min(minY, ln.y - NODE_H / 2);
         maxY = Math.max(maxY, ln.y + NODE_H / 2);
+        count++;
     }
+    if (count === 0) { return; }
     const bw = maxX - minX;
     const bh = maxY - minY;
     const cw = canvas.clientWidth;
@@ -991,6 +999,7 @@ function buildSettingsHtml(): string {
     <div class="settings-section">
         <button id="s-startstop" class="settings-btn">${simEnabled ? '\u23F8 Stop Simulation' : '\u25B6 Start Simulation'}</button>
         <button id="s-restart" class="settings-btn">\u21BA Restart Simulation</button>
+        <button id="s-fitview" class="settings-btn">\u2922 Fit to View</button>
         <button id="s-screenshot" class="settings-btn">\uD83D\uDCF7 Screenshot (PNG)</button>
     </div>
 </div>`;
@@ -1090,6 +1099,12 @@ function attachSettingsEvents(): void {
         simEnabled = true;
         resetLayoutPositions();
         updateStartStopBtn();
+    });
+
+    // Fit to View
+    settingsPanel.querySelector('#s-fitview')!.addEventListener('click', () => {
+        centerOnNodes();
+        draw();
     });
 
     // Screenshot

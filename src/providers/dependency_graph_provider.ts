@@ -7,23 +7,23 @@ import { Target, TargetType } from '../cmake/types';
 // ------------------------------------------------------------
 
 const TARGET_COLORS: Record<TargetType, string> = {
-    EXECUTABLE:        '#4CAF50',
-    STATIC_LIBRARY:    '#2196F3',
-    SHARED_LIBRARY:    '#FF9800',
-    MODULE_LIBRARY:    '#9C27B0',
-    OBJECT_LIBRARY:    '#607D8B',
+    EXECUTABLE: '#4CAF50',
+    STATIC_LIBRARY: '#2196F3',
+    SHARED_LIBRARY: '#FF9800',
+    MODULE_LIBRARY: '#9C27B0',
+    OBJECT_LIBRARY: '#607D8B',
     INTERFACE_LIBRARY: '#00BCD4',
-    UTILITY:           '#795548',
+    UTILITY: '#795548',
 };
 
 const TARGET_SHAPES: Record<TargetType, string> = {
-    EXECUTABLE:        'diamond',
-    STATIC_LIBRARY:    'box',
-    SHARED_LIBRARY:    'box',
-    MODULE_LIBRARY:    'box',
-    OBJECT_LIBRARY:    'box',
+    EXECUTABLE: 'diamond',
+    STATIC_LIBRARY: 'box',
+    SHARED_LIBRARY: 'box',
+    MODULE_LIBRARY: 'box',
+    OBJECT_LIBRARY: 'box',
     INTERFACE_LIBRARY: 'ellipse',
-    UTILITY:           'triangle',
+    UTILITY: 'triangle',
 };
 
 /** CMake-generated utility targets that clutter the graph */
@@ -58,7 +58,7 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
     private targets: Target[] = [];
     private pendingUpdate = false;
 
-    constructor(private readonly extensionUri: vscode.Uri) {}
+    constructor(private readonly extensionUri: vscode.Uri) { }
 
     // ---- WebviewViewProvider ----
 
@@ -72,8 +72,9 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
         webviewView.webview.options = {
             enableScripts: true,
             localResourceRoots: [
+                vscode.Uri.joinPath(this.extensionUri, 'out'),
                 vscode.Uri.joinPath(this.extensionUri, 'dist'),
-                vscode.Uri.joinPath(this.extensionUri, 'media'),
+                vscode.Uri.joinPath(this.extensionUri, 'medias'),
             ],
         };
 
@@ -204,10 +205,10 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
     private getHtml(webview: vscode.Webview): string {
         const nonce = getNonce();
         const scriptUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this.extensionUri, 'dist', 'dependency_graph_webview.js'),
+            vscode.Uri.joinPath(this.extensionUri, 'out', 'webview', 'dependency_graph_webview.js'),
         );
         const styleUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this.extensionUri, 'media', 'dependency_graph.css'),
+            vscode.Uri.joinPath(this.extensionUri, 'medias', 'css', 'dependency_graph.css'),
         );
 
         return `<!DOCTYPE html>

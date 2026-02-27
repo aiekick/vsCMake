@@ -19,7 +19,7 @@ async function main() {
         plugins: [esbuildProblemMatcherPlugin]
     });
 
-    // Webview (Browser) context — bundles vis-network into a single IIFE file
+    // Webview (Browser) context — bundles into a single IIFE file
     const webCtx = await esbuild.context({
         entryPoints: ['src/webview/dependency_graph_webview.ts'],
         bundle: true,
@@ -28,7 +28,7 @@ async function main() {
         sourcemap: false,
         sourcesContent: false,
         platform: 'browser',
-        outfile: 'dist/dependency_graph_webview.js',
+        outfile: 'out/webview/dependency_graph_webview.js',
         logLevel: 'warning',
         plugins: [esbuildProblemMatcherPlugin]
     });

@@ -11,44 +11,6 @@ vsCMake takes a different approach from other CMake extensions: instead of parsi
 
 ## Features
 
-### Project Status Panel
-
-The main panel gives you a clear overview and full control over your CMake project:
-
-| Section | Description |
-|---------|-------------|
-| **Folder** | Source directory selection. Build directory is requested automatically if not set (defaults to `${workspaceFolder}/build`). |
-| **Kit** | Active compiler toolchain. Auto-detected via kit scanning or manually selected. |
-| **Configure** | Without presets: pick `CMAKE_BUILD_TYPE` (Debug, Release, RelWithDebInfo, MinSizeRel). With presets: pick the configure preset. |
-| **Build** | Without presets: pick the build target (all, install, or any individual target). With presets: pick the build preset. Multi-config generators (Ninja Multi-Config, Visual Studio, Xcode) show an additional config selector. |
-| **Test** | Select and run individual tests or all tests. **Only visible when tests are detected** -- test list is fetched automatically after each configure via `ctest --show-only=json-v1`. |
-| **Package** | CPack integration -- **only visible when CPack is detected**. |
-| **Debug** | Select an executable target for debugging. |
-| **Launch** | Select an executable target for launching. |
-
-Inline action buttons let you **Configure**, **Build**, **Clean**, **Test** and **Install** directly from this view.
-
-### CMake Presets Support
-
-Full support for `CMakePresets.json` and `CMakeUserPresets.json`:
-
-- Recursive `include` resolution (version >= 4)
-- Preset inheritance (`inherits`)
-- Macro expansion (`${sourceDir}`, `${presetName}`, `$env{VAR}`, `$penv{VAR}`, etc.)
-- Condition evaluation (`equals`, `notEquals`, `inList`, `matches`, `anyOf`, `allOf`, `not`, etc.)
-- Automatic cascade: changing the configure preset updates compatible build, test, and package presets
-- **Dynamic detection**: presets are reloaded from disk before every configure
-
-### Compiler Kit Scanning
-
-vsCMake can scan your system for available compilers:
-
-- **Windows**: MSVC (via `vswhere`), GCC (MinGW / MSYS2 / WinLibs), Clang, Clang-cl
-- **Linux / macOS**: GCC and Clang from `PATH` and user-configured search paths
-
-The selected kit is injected via `CMAKE_C_COMPILER` / `CMAKE_CXX_COMPILER` at configure time.
-On Windows, the MSVC environment (`vcvarsall.bat`) is resolved and injected automatically so that CMake finds the compiler without requiring a Developer Command Prompt.
-
 ### Project Outline
 
 A tree view of your project structure based on the CMake codemodel:
@@ -92,11 +54,26 @@ Shows which targets are affected when the file you are currently editing changes
 - Hovering a test target shows the full list of associated CTest tests
 - Filter by target name or type
 
+### Dependency Graph
+
+An interactive force-directed graph that visualizes CMake target dependencies:
+
+- **Canvas-based rendering** with pan (click & drag background) and zoom (mouse wheel)
+- **Node interaction**: click a node to select it and highlight its edges, drag a node to reposition it
+- **Double-click a node** to jump to its `add_executable`/`add_library` definition in CMakeLists.txt
+- **Double-click the background** to fit the entire graph in the view
+- **Type filtering**: toggle visibility of target types (Executable, Static Library, etc.) via checkboxes
+- **Edge styles**: choose between Tapered, Chevrons, or Line in the settings panel
+- **Edge direction**: show edges toward dependencies or inverted
+- **Force simulation**: nodes are positioned automatically via a physics simulation with configurable parameters (repulsion, attraction, gravity, damping, etc.)
+- **Settings panel** (gear icon): adjust simulation parameters, start/stop/restart the simulation, fit the graph to view, and export a screenshot as PNG
+- **Legend** showing the color for each target type
+- **State persistence**: camera position, zoom level, edge style and simulation parameters are preserved across view refreshes
+
 ### CTest Integration
 
 Tests are discovered automatically after every configure by running `ctest --show-only=json-v1` in the background.
 
-- The **Test** row in Project Status shows the total test count
 - Test executables are separated from normal executables in the Impacted Targets view
 - Running tests on a single target or a whole section builds the appropriate `ctest -R` regex automatically from the discovered test names
 - The tooltip on a test target lists all its associated CTest tests
@@ -114,20 +91,16 @@ CMake errors, warnings and deprecation notices from the configure step are parse
 
 ### Output Panel
 
-All CMake, CTest and CPack output is shown in a dedicated **vsCMake** output channel with optional syntax highlighting:
+All CMake and CTest output is shown in a dedicated **vsCMake** output channel with optional syntax highlighting:
 
 - Build progress (`[25/105]`)
 - File paths, target names
 - Error and warning messages
 - Success / failure status
 
-### Smart Detection
+### CMake Tools Integration
 
-vsCMake automatically detects project capabilities from the CMake reply:
-
-- **CPack detection**: the Package section only appears if `include(CPack)` is detected. Detection works by checking for `CPackConfig.cmake` in the CMake file inputs.
-- **Test detection**: the Test section only appears if at least one test is found. If you disable `enable_testing()` and reconfigure, the section disappears automatically.
-- **Multi-config detection**: automatically detects multi-config generators (Ninja Multi-Config, Visual Studio, Xcode) and adapts the UI -- showing a build config selector under the Build section.
+vsCMake can work alongside the official CMake Tools extension. When CMake Tools triggers a configure, vsCMake automatically picks up the new build directory and build type, refreshing all panels with the latest project data.
 
 ### Task Management
 
@@ -135,23 +108,12 @@ vsCMake automatically detects project capabilities from the CMake reply:
 - Cancel individual tasks or all tasks at once
 - Long-running silent operations (like test discovery) can also be cancelled
 
-### Delete Cache & Reconfigure
-
-A single command to cleanly reconfigure your project:
-
-- Recursively finds and deletes all `CMakeCache.txt` files and `CMakeFiles/` directories in the build tree (handles FetchContent submodules)
-- Clears the MSVC environment cache to force re-resolution
-- Reloads presets from disk
-- Runs a fresh configure with current settings
-
 ## Getting Started
 
 1. **Install the extension** from the `.vsix` file or the marketplace.
 2. **Open a CMake project** in VS Code.
-3. In the **vsCMake** sidebar, set the **source folder** and **build folder** (or let the extension use `CMakePresets.json`).
-4. If your project has no presets, use **Scan compilers** to detect available toolchains and select one.
-5. Click **Configure** to generate the build system.
-6. Click **Build** to compile.
+3. Set the **build folder** via the command palette or let the extension auto-detect it.
+4. Once the build directory contains CMake reply files (after a configure), all panels update automatically.
 
 ## Keyboard Shortcuts
 
@@ -175,6 +137,7 @@ All settings are under the `vsCMake` prefix.
 | `showJobsOption` | `false` | Show the Jobs (parallelism) row in Build and Test sections |
 | `defaultJobs` | `0` | Default number of parallel jobs (`0` = let CMake/CTest decide) |
 | `colorizeOutput` | `true` | Enable syntax highlighting in the output panel |
+| `graphEdgeDirection` | `dependency` | Edge arrow direction in the dependency graph: `dependency` (toward dependency) or `inverse` |
 
 The `${workspaceFolder}` variable is supported and resolved automatically in path settings.
 
@@ -184,7 +147,7 @@ The `${workspaceFolder}` variable is supported and resolved automatically in pat
 2. When you run **Configure**, CMake generates reply files in `.cmake/api/v1/reply/`
 3. A **file watcher** detects new `index-*.json` files and triggers a reload
 4. vsCMake reads the **codemodel**, **cache**, **cmakeFiles**, and **toolchains** replies
-5. All four panels update with accurate project information straight from CMake
+5. All panels update with accurate project information straight from CMake
 
 This approach means vsCMake works with any CMake project, regardless of complexity -- custom functions, generator expressions, FetchContent, ExternalProject, toolchain files -- everything is supported because CMake itself does the heavy lifting.
 

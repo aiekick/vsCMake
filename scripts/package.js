@@ -100,15 +100,15 @@ archive.file(manifestPath, { name: 'extension.vsixmanifest' });
 const filesToInclude = [
     'package.json',
     'readme.md',
+    'changelog.md',
     'LICENSE'
 ];
 
 // Liste des dossiers à inclure
 const foldersToInclude = [
-    'images',
-    'dist',
-    'syntaxes',
-    'media'
+    'medias',
+    'out',
+    'syntaxes'
 ];
 
 // Ajoutez les fichiers individuels

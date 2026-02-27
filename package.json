@@ -60,7 +60,10 @@
         },
         "vsCMake.graphEdgeDirection": {
           "type": "string",
-          "enum": ["dependency", "inverse"],
+          "enum": [
+            "dependency",
+            "inverse"
+          ],
           "default": "dependency",
           "description": "Edge arrow direction: toward dependency or inverse"
         }
@@ -71,7 +74,7 @@
         {
           "id": "vsCMake",
           "title": "vsCMake",
-          "icon": "images/icon.svg"
+          "icon": "medias/icon.svg"
         }
       ]
     },
@@ -591,7 +594,7 @@
   "scripts": {
     "check": "tsc --noEmit",
     "compile": "tsc -p ./",
-    "package": "node ./scripts/esbuild.js && node ./scripts/package.js",
+    "package": "rm -rf out && node ./scripts/esbuild.js && node ./scripts/package.js",
     "watch": "tsc -watch -p ./"
   },
   "dependencies": {

@@ -6,7 +6,7 @@ This document describes the internal architecture of vsCMake and the procedures 
 
 - [Node.js](https://nodejs.org/) >= 18
 - [Visual Studio Code](https://code.visualstudio.com/) >= 1.80.0
-- (optional) [`vsce`](https://github.com/microsoft/vscode-vsce) for packaging
+- (optional) [`vsce`](https://github.com/microsoft/vscode-vsce) for packaging via the standard method
 
 ```bash
 npm install -g @vscode/vsce
@@ -24,9 +24,10 @@ npm install --save-dev typescript @types/vscode --ignore-scripts
 
 | Script | Command | Purpose |
 |--------|---------|---------|
-| `npm run compile` | `tsc -p ./` | Compile TypeScript to `out/` |
+| `npm run compile` | `tsc -p ./` | Compile TypeScript to `out/` (development) |
 | `npm run watch` | `tsc -watch -p ./` | Continuous compilation on save |
 | `npm run check` | `tsc --noEmit` | Type-check without emitting files |
+| `npm run package` | `rm -rf out && node ./scripts/esbuild.js && node ./scripts/package.js` | Bundle with esbuild and produce VSIX |
 
 ## Running & Debugging in VS Code
 
@@ -41,19 +42,31 @@ The project ships with `.vscode/launch.json` and `.vscode/tasks.json` pre-config
 5. Breakpoints in `src/` files work normally.
 6. After modifying code, the watch task recompiles automatically. Reload the Extension Development Host with `Ctrl+Shift+F5` to pick up changes.
 
-## Packaging a VSIX
+## Build & Packaging
 
-```bash
-npm run compile
-vsce package
-```
+### Development build (tsc)
 
-This produces a `vscmake-<version>.vsix` file. Install it via:
+During development, `npm run compile` (or `npm run watch`) uses the TypeScript compiler to produce individual `.js` files under `out/`. This preserves source maps and enables debugging.
 
+### Production build (esbuild + custom packager)
+
+`npm run package` performs a full production build:
+
+1. **`scripts/esbuild.js`** bundles two entry points:
+   - **Extension** (Node context): `src/extension.ts` → `out/extension.js` (CommonJS, externals: `vscode`)
+   - **Webview** (Browser context): `src/webview/dependency_graph_webview.ts` → `out/webview/dependency_graph_webview.js` (IIFE, no externals)
+   - In production mode: minified, no source maps
+2. **`scripts/package.js`** creates the `.vsix` archive (ZIP format) containing:
+   - `package.json`, `readme.md`, `changelog.md`, `LICENSE`
+   - `out/` (bundled JavaScript)
+   - `medias/` (CSS, icons)
+   - `syntaxes/` (TextMate grammars)
+
+This replaces `vsce package` with a custom packager that generates the `[Content_Types].xml` and `extension.vsixmanifest` files.
+
+Install the produced VSIX via:
 - VS Code: **Extensions > ... > Install from VSIX...**
-- Command line: `code --install-extension vscmake-0.1.0.vsix`
-
-The `.vscodeignore` file excludes `src/`, `.vscode/`, `node_modules/`, `tsconfig.json` and source maps from the VSIX.
+- Command line: `code --install-extension vscmake-<version>.vsix`
 
 ## Icons
 
@@ -77,21 +90,31 @@ vsCMake/
       preset_evaluator.ts                 Macro and condition evaluation
       cmake_diagnostics_manager.ts        Parse cmake output for errors/warnings
     providers/
-      project_status_provider.ts          Project Status tree view
       project_outline_provider.ts         Project Outline tree view
       config_provider.ts                  Configuration (cache) tree view
       impacted_targets_provider.ts        Impacted Targets tree view
+      dependency_graph_provider.ts        Dependency Graph webview provider
       cmake_file_decoration_provider.ts   File decoration badges (E/W/D)
+    webview/
+      dependency_graph_webview.ts         Dependency Graph client-side code (Canvas2D)
+      vscode.d.ts                         Type declarations for VS Code webview API
+    misc/
+      cmake_tools_api.ts                  CMake Tools extension integration
     watchers/
       reply_watcher.ts                    File watcher for CMake API replies
     syntaxes/
       output_coloration.tmLanguage.json   TextMate grammar for output panel
-  images/
-    icon.svg                              Extension icon (CMake logo)
-  out/                                    Compiled JavaScript (git-ignored)
+  medias/
+    icon.svg                              Extension icon
+    css/
+      dependency_graph.css                Dependency Graph webview styles
+  scripts/
+    esbuild.js                            esbuild bundler configuration
+    package.js                            Custom VSIX packager
+  out/                                    Compiled/bundled JavaScript (git-ignored)
   package.json                            Extension manifest
   tsconfig.json                           TypeScript configuration
-  .vscodeignore                           Files excluded from VSIX
+  .vscodeignore                           Files excluded from VSIX (used by vsce)
   LICENSE                                 MIT license
 ```
 
@@ -108,12 +131,18 @@ CMake File-Based API
         v
   extension.ts ---- loadReply()
         |
-        +---> statusProvider.refreshFromCodemodel()
         +---> outlineProvider.refresh()
         +---> configProvider.refresh(cache)
         +---> impactedProvider.refresh(targets, sourceDir)
+        +---> graphProvider.refresh(targets)
         +---> refreshAvailableTests() ---> impactedProvider.setTestMap()
 ```
+
+### CMake Tools Integration (`misc/cmake_tools_api.ts`)
+
+`CMakeToolsIntegrationManager` listens for configure events from the official CMake Tools extension (if installed). When CMake Tools finishes a configure, vsCMake receives the build directory and build type, then calls `initBuildDir()` and `updateAllPanesWithConfig()` to refresh all panels automatically.
+
+The manager handles reconnection when workspace folders change or when CMake Tools is activated after vsCMake.
 
 ### CMake File-Based API Integration (`api_client.ts`)
 
@@ -131,7 +160,7 @@ The extension communicates with CMake through its File-Based API (v1):
 
 ### Reply Watcher (`reply_watcher.ts`)
 
-A `vscode.FileSystemWatcher` monitors `.cmake/api/v1/reply/index-*.json`. When a new index appears (after a configure), it fires `onDidReply` which triggers `loadReply()` in `extension.ts`, refreshing all four providers.
+A `vscode.FileSystemWatcher` monitors `.cmake/api/v1/reply/index-*.json`. When a new index appears (after a configure), it fires `onDidReply` which triggers `loadReply()` in `extension.ts`, refreshing all providers.
 
 ### Runner (`runner.ts`)
 
@@ -168,14 +197,7 @@ Parses CMake configure output line-by-line to extract diagnostics:
 
 ### Tree View Providers
 
-All four views implement `vscode.TreeDataProvider<TreeNode>` with discriminated union node types.
-
-#### ProjectStatusProvider (`project_status_provider.ts`)
-
-- Displays project state as section/value pairs
-- Manages persistent state (`workspaceState`): selected config, presets, targets, kit
-- Emits events when active configuration changes (triggers outline refresh)
-- Handles smart detection: test count, CPack presence, multi-config generators
+Three tree views implement `vscode.TreeDataProvider<TreeNode>` with discriminated union node types.
 
 #### ProjectOutlineProvider (`project_outline_provider.ts`)
 
@@ -198,6 +220,52 @@ All four views implement `vscode.TreeDataProvider<TreeNode>` with discriminated 
 - **Active file tracking**: listens to `onDidChangeActiveTextEditor`
 - **Test separation**: uses `testsByTarget` map to split EXECUTABLE targets into Executables vs Tests sections
 - **Test regex building**: `getTestRegex()` and `getTestSectionRegex()` group test names by first token (before `_`) to produce compact `ctest -R` patterns
+
+### Dependency Graph (`dependency_graph_provider.ts` + `dependency_graph_webview.ts`)
+
+The Dependency Graph is a webview-based panel that renders an interactive force-directed graph of CMake target dependencies using Canvas2D (no external visualization library at runtime).
+
+#### Provider side (`dependency_graph_provider.ts`)
+
+- Implements `vscode.WebviewViewProvider`
+- Converts the target list into graph nodes (with color/shape per target type) and edges (from `target.dependencies`)
+- Filters out UTILITY targets and CMake-generated targets (`ALL_BUILD`, `ZERO_CHECK`, etc.)
+- Handles messages from the webview: node clicks (reveal in outline), double-clicks (open definition in CMakeLists.txt), screenshot export, settings updates
+- Serves the webview HTML with CSP headers, referencing the bundled JS and CSS from `out/` and `medias/`
+
+#### Webview side (`dependency_graph_webview.ts`)
+
+Pure TypeScript compiled to a single IIFE bundle (via esbuild). Runs in the webview's browser context.
+
+**Rendering:**
+- Canvas2D-based with device pixel ratio support
+- Grid background with origin cross
+- Rectangular nodes with rounded corners, auto-contrast text color
+- Three edge styles: tapered (triangle), chevrons (>>>), line
+- Off-screen culling for both nodes and edges
+
+**Interaction:**
+- Pan: click & drag on background
+- Zoom: mouse wheel (centered on cursor)
+- Node drag: click & drag on a node
+- Selection: click a node to highlight it and its edges
+- Double-click node: sends message to open target definition
+- Double-click background: fit graph to view (`centerOnNodes()`)
+
+**Force simulation:**
+- Repulsion (Coulomb), attraction on edges (Hooke), central gravity
+- Configurable parameters: repulsion, attraction, gravity, min distance, steps/frame, threshold, damping
+- Auto-stops when total movement drops below threshold
+- Optional auto-pause during node drag
+
+**Settings panel:**
+- Edge style and direction selectors
+- Simulation parameter sliders with per-parameter reset buttons
+- Start/Stop, Restart, Fit to View, Screenshot buttons
+- Auto-pause during drag checkbox
+
+**State persistence:**
+- Camera position, zoom, edge style and simulation parameters are saved via `vscode.setState()` / `vscode.getState()` and survive view refreshes
 
 ### CTest Discovery & Test-to-Target Mapping
 
@@ -279,14 +347,14 @@ Decorates files and folders in the Explorer with diagnostic badges:
 
 ### Views
 
-Four tree views in the `vsCMake` activity bar container:
+Four views in the `vsCMake` activity bar container:
 
-| View ID | Name |
-|---------|------|
-| `vsCMakeStatus` | Project Status |
-| `vsCMakeOutline` | Project Outline |
-| `vsCMakeConfig` | Configuration |
-| `vsCMakeImpacted` | Impacted Targets |
+| View ID | Name | Type |
+|---------|------|------|
+| `vsCMakeOutline` | Project Outline | Tree view |
+| `vsCMakeConfig` | Configuration | Tree view |
+| `vsCMakeImpacted` | Impacted Targets | Tree view |
+| `vsCMakeDependencyGraph` | Dependency Graph | Webview |
 
 ### Context Values
 
@@ -312,10 +380,6 @@ Context values control which inline buttons appear on each tree node:
 - `cmakeCacheEntry` -- edit button
 - `cmakeCacheFilter` / `cmakeCacheFilterActive` -- filter / clear filter
 
-**Project Status:**
-- `statusSection_<section>` -- action buttons (configure, build, test, etc.)
-- `statusValue_<field>` -- picker buttons
-
 ### Commands
 
 All commands are prefixed with `vsCMake.`. The full list is declared in `package.json` under `contributes.commands`. Key commands:
@@ -325,18 +389,21 @@ All commands are prefixed with `vsCMake.`. The full list is declared in `package
 | `configure` | Configure | `Ctrl+Shift+F7` |
 | `build` | Build | `Ctrl+F7` |
 | `clean` | Clean | -- |
-| `install` | Install | -- |
 | `test` | Test | -- |
 | `buildTarget` | Build target | -- |
 | `rebuildTarget` | Rebuild target (clean + build) | -- |
 | `testImpactedTarget` | Run test | -- |
 | `testImpactedSection` | Run all tests in section | -- |
-| `deleteCacheAndReconfigure` | Delete cache and reconfigure | -- |
 | `cancelTask` | Cancel running task | -- |
-| `scanKits` | Scan available compilers | -- |
+| `refresh` | Refresh | -- |
 | `filterImpacted` | Filter targets | -- |
 | `filterOutline` | Filter targets | -- |
 | `filterConfig` | Filter variables | -- |
+| `toggleGraphLayout` | Toggle graph layout | -- |
+| `graphSettings` | Graph settings | -- |
+| `graphScreenshot` | Screenshot graph | -- |
+| `refreshDependencyGraph` | Refresh dependency graph | -- |
+| `openSettings` | Open extension settings | -- |
 
 ## TypeScript Configuration
 
@@ -351,12 +418,15 @@ From `tsconfig.json`:
 
 ## Dependencies
 
-**No runtime dependencies.** The extension uses only VS Code built-in APIs and Node.js standard library.
+**Runtime dependencies:**
+- `vis-data` ^8.0.3
+- `vis-network` ^10.0.2
 
 Dev dependencies:
 - `@types/node` ^20.0.0
 - `@types/vscode` ^1.80.0
-- `typescript` ^5.0.0
+- `typescript` ^5.9.3
+- `esbuild` ^0.27.3
 
 ## Quick Reference
 
@@ -364,15 +434,15 @@ Dev dependencies:
 # Type-check without compiling
 npm run check
 
-# Compile once
+# Compile once (development, with source maps)
 npm run compile
 
 # Watch mode (auto-compile on save)
 npm run watch
 
-# Package into VSIX
-vsce package
+# Bundle with esbuild and produce VSIX
+npm run package
 
 # Install VSIX locally
-code --install-extension vscmake-0.1.0.vsix
+code --install-extension vscmake-<version>.vsix
 ```
