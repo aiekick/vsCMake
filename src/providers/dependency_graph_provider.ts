@@ -128,9 +128,9 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
         }));
 
         const edges: GraphEdge[] = filtered.flatMap(t =>
-            (t.dependencies ?? [])
-                .filter(d => validIds.has(d.id))
-                .map(d => ({ from: t.id, to: d.id })),
+            (t.directLinks ?? [])
+                .filter(id => validIds.has(id))
+                .map(id => ({ from: t.id, to: id })),
         );
 
         const edgeDirection = vscode.workspace.getConfiguration('vsCMake').get<string>('graphEdgeDirection', 'dependency');

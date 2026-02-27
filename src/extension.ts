@@ -11,7 +11,7 @@ import { CMakeFileDecorationProvider } from './providers/cmake_file_decoration_p
 import { ImpactedTargetsProvider } from './providers/impacted_targets_provider';
 import { DependencyGraphProvider } from './providers/dependency_graph_provider';
 import { CMakeToolsIntegrationManager } from './misc/cmake_tools_api';
-
+import { computeDirectLinks } from './cmake/direct_links_converter';
 // ------------------------------------------------------------
 // Types
 // ------------------------------------------------------------
@@ -216,6 +216,9 @@ async function loadReply(): Promise<void> {
     if (!apiClient) { return; }
     try {
         lastReply = await apiClient.loadAll();
+
+        // compute driect links of targets
+        lastReply = computeDirectLinks(lastReply, false /*agressive*/);
 
         // Detect available configurations
         availableConfigs = lastReply.codemodel.configurations.map(c => c.name || '(default)');

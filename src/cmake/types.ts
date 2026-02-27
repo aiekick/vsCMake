@@ -118,6 +118,7 @@ export interface Target {
     link?: Link;
     archive?: Archive;
     dependencies?: Dependency[];
+    directLinks?: string[];
     sources: Source[];
     sourceGroups?: SourceGroup[];
     compileGroups?: CompileGroup[];
