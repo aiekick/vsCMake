@@ -25,6 +25,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: vsCMake
-          files: vscmake-*.vsix
+          tag_name: github.ref_name
+          files: ./vscmake-*.vsix
           generate_release_notes: true
           draft: true
