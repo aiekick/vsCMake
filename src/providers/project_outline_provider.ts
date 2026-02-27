@@ -10,7 +10,7 @@ import {
 // Nodes
 // ------------------------------------------------------------
 type SectionId = 'sources' | 'cmakeExtras';
-type ExtrasId = 'includes' | 'compileFlags' | 'linkFlags' | 'libraries' | 'dependencies';
+type ExtrasId = 'includes' | 'compileFlags' | 'linkFlags' | 'libraries' | 'dependencies' | 'directLinks';
 
 interface ProjectNode { kind: 'project'; name: string; }
 interface RootFileNode { kind: 'rootFile'; target: Target | null; label: string; filePath: string; }
@@ -25,6 +25,7 @@ interface FlagNode { kind: 'flag'; target: Target; text: string; }
 interface CmakeFileNode { kind: 'cmakefile'; target: Target; path: string; }
 interface VirtualFolderNode { kind: 'virtualFolder'; name: string; fullPath: string; sources: { source: Source; compileGroup?: CompileGroup }[]; subFolders: VirtualFolderNode[]; target: Target; }
 interface DepNode { kind: 'dependency'; target: Target; }
+interface DirectLinkNode { kind: 'directLink'; target: Target; }
 interface LibNode { kind: 'library'; target: Target; fragment: string; role: string; }
 interface OutlineFilterNode { kind: 'outlineFilter'; }
 
@@ -33,7 +34,7 @@ type TreeNode =
     | RootFileNode | FolderNode | TargetNode | TargetCmakeNode
     | SectionNode | ExtrasGroupNode
     | SourceNode | IncludeNode | FlagNode | CmakeFileNode
-    | VirtualFolderNode | DepNode | LibNode;
+    | VirtualFolderNode | DepNode | DirectLinkNode | LibNode;
 
 const TARGET_ICONS: Record<TargetType, string> = {
     EXECUTABLE: 'run',
@@ -143,6 +144,7 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
             case 'cmakefile': return this.cmakeFileItem(node);
             case 'virtualFolder': return this.virtualFolderItem(node);
             case 'dependency': return this.depItem(node);
+            case 'directLink': return this.directLinkItem(node);
             case 'library': return this.libItem(node);
         }
     }
@@ -456,10 +458,11 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
 
         const extras: { id: ExtrasId; label: string; icon: string; show: boolean }[] = [
             { id: 'includes', label: 'Include Dirs', icon: 'file-symlink-directory', show: this.hasIncludes(target) },
-            { id: 'compileFlags', label: 'Flags', icon: 'symbol-operator', show: this.hasCompileFlags(target) },
+            { id: 'compileFlags', label: 'Compile Flags', icon: 'symbol-operator', show: this.hasCompileFlags(target) },
             { id: 'linkFlags', label: 'Link Flags', icon: 'link', show: this.hasLinkFlags(target) },
             { id: 'libraries', label: 'Libraries', icon: 'references', show: this.hasLibraries(target) },
-            { id: 'dependencies', label: 'Dependencies', icon: 'type-hierarchy', show: (target.dependencies?.length ?? 0) > 0 },
+            //   { id: 'dependencies', label: 'Dependencies', icon: 'type-hierarchy', show: (target.dependencies?.length ?? 0) > 0 },
+            { id: 'directLinks', label: 'Direct Links', icon: 'type-hierarchy', show: (target.directLinks?.length ?? 0) > 0 },
         ];
         for (const g of extras) {
             if (g.show) {
@@ -477,6 +480,7 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
             case 'linkFlags': return this.linkFlagNodes(node.target);
             case 'libraries': return this.libraryNodes(node.target);
             case 'dependencies': return this.dependencyNodes(node.target);
+            case 'directLinks': return this.directLinkNodes(node.target);
         }
     }
 
@@ -549,6 +553,17 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
             .map(dep => this.targetMap.get(dep.id))
             .filter((t): t is Target => t !== undefined)
             .map(t => ({ kind: 'dependency' as const, target: t }));
+    }
+
+    // ------------------------------------------------------------
+    // Direct Links
+    // ------------------------------------------------------------
+
+    private directLinkNodes(target: Target): DirectLinkNode[] {
+        return (target.directLinks ?? [])
+            .map(link => this.targetMap.get(link))
+            .filter((t): t is Target => t !== undefined)
+            .map(t => ({ kind: 'directLink' as const, target: t }));
     }
 
     // ------------------------------------------------------------
@@ -708,6 +723,16 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
         item.description = t.type;
         item.tooltip = `Dependency: ${t.name} (${t.type})`;
         item.contextValue = 'outlineDependency';
+        return item;
+    }
+
+    private directLinkItem(node: DirectLinkNode): vscode.TreeItem {
+        const t = node.target;
+        const item = new vscode.TreeItem(t.name, vscode.TreeItemCollapsibleState.None);
+        item.iconPath = new vscode.ThemeIcon(TARGET_ICONS[t.type] ?? 'symbol-method');
+        item.description = t.type;
+        item.tooltip = `Direct Link: ${t.name} (${t.type})`;
+        item.contextValue = 'outlineDirectLink';
         return item;
     }
 

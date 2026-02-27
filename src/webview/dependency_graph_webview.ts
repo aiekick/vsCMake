@@ -40,7 +40,7 @@ let selectedNodeId: string | null = null;
 let edgeStyle: 'tapered' | 'chevrons' | 'line' = 'tapered';
 let edgeDirection: 'parent-to-child' | 'child-to-parent' = 'child-to-parent';
 let simEnabled = true;       // user toggle: allows/prevents sim from running
-let autoPauseDuringDrag = true;
+let autoPauseDuringDrag = false;
 
 const TARGET_TYPES = [
     'EXECUTABLE', 'STATIC_LIBRARY', 'SHARED_LIBRARY',
@@ -65,6 +65,7 @@ const GRID_SIZE = 40;
 // Interaction state
 let isPanning = false;
 let isDraggingNode = false;
+let wasPanning = false;
 let dragNode: LayoutNode | null = null;
 let panStartX = 0;
 let panStartY = 0;
@@ -78,18 +79,20 @@ let firstLayout = true;
 // Force simulation parameters (defaults)
 // ------------------------------------------------------------
 const SIM_DEFAULTS: Record<string, number> = {
-    repulsion: 100000,
-    attraction: 0.0001,
-    gravity: 0.02,
-    minDistance: 300,
-    stepsPerFrame: 1,
-    threshold: 0.5,
+    repulsion: 50000,
+    attraction: 0.1,
+    gravity: 0.001,
+    linkLength: 0.1, // ideal link length smaller = stronger spring
+    minDistance: 5000,
+    stepsPerFrame: 5,
+    threshold: 0.1,
     damping: 0.85,
 };
 
 let simRepulsion = SIM_DEFAULTS.repulsion;
 let simAttraction = SIM_DEFAULTS.attraction;
 let simGravity = SIM_DEFAULTS.gravity;
+let simLinkLength = SIM_DEFAULTS.linkLength;
 let simMinDistance = SIM_DEFAULTS.minDistance;
 let simStepsPerFrame = SIM_DEFAULTS.stepsPerFrame;
 let simThreshold = SIM_DEFAULTS.threshold;
@@ -101,17 +104,24 @@ let simAnimFrame: number | null = null;
 // State persistence (camera + settings, survives refresh)
 // ------------------------------------------------------------
 interface PersistedState {
-    camX?: number; camY?: number; zoom?: number;
+    camX?: number;
+    camY?: number;
+    zoom?: number;
     edgeStyle?: string;
-    simRepulsion?: number; simAttraction?: number; simGravity?: number;
-    simMinDistance?: number; simStepsPerFrame?: number; simThreshold?: number;
+    simRepulsion?: number;
+    simAttraction?: number;
+    simGravity?: number;
+    simLinkLength?: number;
+    simMinDistance?: number;
+    simStepsPerFrame?: number;
+    simThreshold?: number;
     simDamping?: number;
 }
 
 function saveState(): void {
     vscode.setState({
         camX, camY, zoom, edgeStyle,
-        simRepulsion, simAttraction, simGravity,
+        simRepulsion, simAttraction, simGravity, simLinkLength,
         simMinDistance, simStepsPerFrame, simThreshold, simDamping,
     } as PersistedState);
 }
@@ -126,6 +136,7 @@ function restoreState(): boolean {
     if (s.simRepulsion !== undefined) { simRepulsion = s.simRepulsion; }
     if (s.simAttraction !== undefined) { simAttraction = s.simAttraction; }
     if (s.simGravity !== undefined) { simGravity = s.simGravity; }
+    if (s.simLinkLength !== undefined) { simLinkLength = s.simLinkLength; }
     if (s.simMinDistance !== undefined) { simMinDistance = s.simMinDistance; }
     if (s.simStepsPerFrame !== undefined) { simStepsPerFrame = s.simStepsPerFrame; }
     if (s.simThreshold !== undefined) { simThreshold = s.simThreshold; }
@@ -362,7 +373,8 @@ function drawLineEdge(
 function drawNodes(w: number, h: number): void {
     if (!ctx || layoutNodes.length === 0) { return; }
 
-    const fontSize = Math.max(8, 11 * zoom);
+    const minFontSize = 3;
+    const fontSize = Math.max(minFontSize, 11 * zoom);
 
     for (const ln of layoutNodes) {
         if (activeFilters.has(ln.node.type)) { continue; }
@@ -372,22 +384,34 @@ function drawNodes(w: number, h: number): void {
         const sh = NODE_H * zoom;
 
         // Cull off-screen
-        if (sx + sw / 2 < 0 || sx - sw / 2 > w || sy + sh / 2 < 0 || sy - sh / 2 > h) { continue; }
+        if (((sx + sw / 2) < 0) ||
+            ((sx - sw / 2) > w) ||
+            ((sy + sh / 2) < 0) ||
+            ((sy - sh / 2) > h)) {
+            continue;
+        }
 
         const color = ln.node.color;
         const borderColor = darken(color);
 
+        const zoom2 = 2 * zoom;
+        const zoom3 = 3 * zoom;
+        const zoom4 = 4 * zoom;
+
         ctx.fillStyle = color;
         ctx.strokeStyle = borderColor;
-        ctx.lineWidth = Math.max(1, 2 * zoom);
-        drawBox(ctx, sx, sy, sw, sh);
+        ctx.lineWidth = Math.max(1, zoom2);
+        const r = Math.min(zoom4, sw * 0.08);
+        drawBox(ctx, sx, sy, sw, sh, r);
 
         // Selection border
         if (ln.node.id === selectedNodeId) {
             ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = Math.max(2, 3 * zoom);
-            drawBox(ctx, sx, sy, sw + 4 * zoom, sh + 4 * zoom, true);
+            ctx.lineWidth = Math.max(2, zoom3);
+            drawBox(ctx, sx, sy, sw + zoom4, sh + zoom4, r + zoom2, true);
         }
+
+        if (fontSize <= minFontSize) { continue; }
 
         // Label with auto contrast
         const textColor = contrastTextColor(color);
@@ -399,8 +423,7 @@ function drawNodes(w: number, h: number): void {
     }
 }
 
-function drawBox(c: CanvasRenderingContext2D, cx: number, cy: number, w: number, h: number, strokeOnly = false): void {
-    const r = Math.min(4 * zoom, w * 0.08);
+function drawBox(c: CanvasRenderingContext2D, cx: number, cy: number, w: number, h: number, r: number, strokeOnly = false): void {
     const x = cx - w / 2;
     const y = cy - h / 2;
     c.beginPath();
@@ -511,7 +534,6 @@ function attachCanvasEvents(c: HTMLCanvasElement): void {
             vscode.postMessage({ type: 'nodeClick', targetId: hit.node.id });
         } else {
             isPanning = true;
-            selectedNodeId = null;
             panStartX = e.clientX;
             panStartY = e.clientY;
             camStartX = camX;
@@ -530,6 +552,7 @@ function attachCanvasEvents(c: HTMLCanvasElement): void {
             dragNode.y = (my - dragOffsetY - camY) / zoom;
             draw();
         } else if (isPanning) {
+            wasPanning = true;
             camX = camStartX + (e.clientX - panStartX);
             camY = camStartY + (e.clientY - panStartY);
             draw();
@@ -546,9 +569,12 @@ function attachCanvasEvents(c: HTMLCanvasElement): void {
             if (simEnabled) {
                 startSimulation();
             }
+        } else if (!wasPanning) {
+            selectedNodeId = null;
         }
         if (isPanning) {
             isPanning = false;
+            wasPanning = false;
             c.style.cursor = 'grab';
             saveState();
         }
@@ -662,7 +688,13 @@ function simulationStep(): void {
             const dy = layoutNodes[ti].y - layoutNodes[fi].y;
             const dist = Math.sqrt(dx * dx + dy * dy);
             if (dist < 1) { continue; }
-            const force = simAttraction * dist;
+
+            // linear spring: F = k * x
+            //const force = simAttraction * dist;
+
+            // Logarithmic spring: strong pull when far, weaker when close
+            const force = simAttraction * Math.log(1 + dist) / simLinkLength;
+
             const forceX = (dx / dist) * force;
             const forceY = (dy / dist) * force;
             fx[fi] += forceX;
@@ -674,8 +706,13 @@ function simulationStep(): void {
         // Central gravity toward origin
         for (let i = 0; i < n; i++) {
             if (activeFilters.has(layoutNodes[i].node.type)) { continue; }
-            fx[i] -= layoutNodes[i].x * simGravity;
-            fy[i] -= layoutNodes[i].y * simGravity;
+            const px = layoutNodes[i].x;
+            const py = layoutNodes[i].y;
+            const dist = Math.sqrt(px * px + py * py);
+            if (dist < 1) { continue; }
+            const forceDist = simGravity; // * Math.pow(dist, 0.25) ;
+            fx[i] -= px * forceDist;
+            fy[i] -= py * forceDist;
         }
 
         // Apply forces with velocity damping
@@ -802,7 +839,7 @@ function initLayoutNodes(nodes: GraphNode[]): void {
     const widths = nodes.map(n => measureNodeWidth(n.label));
 
     layoutNodes = [];
-    const radius = Math.max(150, nodes.length * 20);
+    const radius = Math.max(100, nodes.length * 10);
 
     for (let i = 0; i < nodes.length; i++) {
         const n = nodes[i];
@@ -988,15 +1025,17 @@ function buildSettingsHtml(): string {
     <div class="settings-section">
         <div class="settings-title">Force Simulation</div>
         ${sliderRow('repulsion', 'Repulsion', 500, 100000, 500, simRepulsion, SIM_DEFAULTS.repulsion)}
-        ${sliderRow('attraction', 'Attraction', 0.0001, 0.05, 0.001, simAttraction, SIM_DEFAULTS.attraction)}
+        ${sliderRow('attraction', 'Attraction', 0.0001, 0.1, 0.001, simAttraction, SIM_DEFAULTS.attraction)}
         ${sliderRow('gravity', 'Gravity', 0.001, 0.2, 0.001, simGravity, SIM_DEFAULTS.gravity)}
-        ${sliderRow('minDist', 'Min Distance', 20, 5000, 10, simMinDistance, SIM_DEFAULTS.minDistance)}
-        ${sliderRow('steps', 'Steps/Frame', 1, 20, 1, simStepsPerFrame, SIM_DEFAULTS.stepsPerFrame)}
-        ${sliderRow('threshold', 'Threshold', 0.01, 5, 0.01, simThreshold, SIM_DEFAULTS.threshold)}
-        ${sliderRow('damping', 'Damping', 0.5, 0.99, 0.01, simDamping, SIM_DEFAULTS.damping)}
+        ${sliderRow('linkLength', 'Link Length', 0.001, 1.0, 0.001, simLinkLength, SIM_DEFAULTS.linkLength)}
+        ${sliderRow('minDist', 'Min Distance', 20, 100000, 10, simMinDistance, SIM_DEFAULTS.minDistance)}
+        ${sliderRow('steps', 'Steps/Frame', 1, 10, 1, simStepsPerFrame, SIM_DEFAULTS.stepsPerFrame)}
+        ${sliderRow('threshold', 'Threshold', 0.001, 5, 0.001, simThreshold, SIM_DEFAULTS.threshold)}
+        ${sliderRow('damping', 'Damping', 0.5, 1.0, 0.01, simDamping, SIM_DEFAULTS.damping)}
         <label class="settings-checkbox"><input type="checkbox" id="s-autoPause"${autoPauseDuringDrag ? ' checked' : ''}> Auto-pause sim during node drag</label>
     </div>
     <div class="settings-section">
+        <div class="settings-title">Controls</div>
         <button id="s-startstop" class="settings-btn">${simEnabled ? '\u23F8 Stop Simulation' : '\u25B6 Start Simulation'}</button>
         <button id="s-restart" class="settings-btn">\u21BA Restart Simulation</button>
         <button id="s-fitview" class="settings-btn">\u2922 Fit to View</button>
@@ -1045,6 +1084,7 @@ function attachSettingsEvents(): void {
         ['s-repulsion', 'v-repulsion', v => { simRepulsion = v; }],
         ['s-attraction', 'v-attraction', v => { simAttraction = v; }],
         ['s-gravity', 'v-gravity', v => { simGravity = v; }],
+        ['s-linkLength', 'v-linkLength', v => { simLinkLength = v; }],
         ['s-minDist', 'v-minDist', v => { simMinDistance = v; }],
         ['s-steps', 'v-steps', v => { simStepsPerFrame = Math.round(v); }],
         ['s-threshold', 'v-threshold', v => { simThreshold = v; }],

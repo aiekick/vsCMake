@@ -221,7 +221,7 @@ async function loadReply(): Promise<void> {
         // compute direct links of targets
         // debugDirectLinks(lastReply);
         // debugMissingLinks(lastReply);
-        debugSignatures(lastReply);
+        // debugSignatures(lastReply);
         lastReply = computeDirectLinks(lastReply);
 
         // Detect available configurations

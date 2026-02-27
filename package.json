@@ -323,7 +323,7 @@
         "command": "vsCMake.graphSettings",
         "title": "Graph Settings",
         "category": "CMake",
-        "icon": "$(gear)"
+        "icon": "$(settings)"
       },
       {
         "command": "vsCMake.graphScreenshot",
@@ -457,17 +457,17 @@
         {
           "command": "vsCMake.graphSettings",
           "when": "view == vsCMakeDependencyGraph",
-          "group": "1_graph@1"
+          "group": "navigation@2"
         },
         {
           "command": "vsCMake.graphScreenshot",
           "when": "view == vsCMakeDependencyGraph",
-          "group": "1_graph@2"
+          "group": "navigation@3"
         },
         {
           "command": "vsCMake.openSettings",
           "when": "view == vsCMakeDependencyGraph",
-          "group": "2_settings@1"
+          "group": "navigation@4"
         }
       ],
       "view/item/context": [
