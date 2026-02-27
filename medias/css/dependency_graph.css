@@ -44,6 +44,88 @@ body {
     cursor: pointer;
 }
 
+/* ---- Breadcrumb bar ---- */
+
+#breadcrumb-bar {
+    padding: 3px 8px;
+    background: var(--vscode-sideBar-background);
+    border-bottom: 1px solid var(--vscode-panel-border);
+    flex-shrink: 0;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    overflow-x: auto;
+    white-space: nowrap;
+}
+
+.breadcrumb-item {
+    color: var(--vscode-textLink-foreground);
+    cursor: pointer;
+    padding: 1px 3px;
+    border-radius: 2px;
+}
+.breadcrumb-item:hover {
+    background: var(--vscode-toolbar-hoverBackground);
+    text-decoration: underline;
+}
+.breadcrumb-separator {
+    color: var(--vscode-descriptionForeground);
+    margin: 0 2px;
+}
+.breadcrumb-current {
+    color: var(--vscode-editor-foreground);
+    font-weight: bold;
+    padding: 1px 3px;
+}
+
+/* ---- Search bar ---- */
+
+#search-container {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+#search-input {
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    padding: 2px 6px;
+    font-size: 11px;
+    border-radius: 2px;
+    width: 140px;
+    outline: none;
+}
+#search-input:focus {
+    border-color: var(--vscode-focusBorder);
+}
+#search-input::placeholder {
+    color: var(--vscode-input-placeholderForeground);
+}
+
+#search-mode,
+#search-filter-mode,
+#search-clear {
+    background: var(--vscode-button-secondaryBackground, var(--vscode-sideBar-background));
+    color: var(--vscode-button-secondaryForeground, var(--vscode-editor-foreground));
+    border: 1px solid var(--vscode-panel-border);
+    cursor: pointer;
+    font-size: 10px;
+    font-weight: bold;
+    padding: 2px 5px;
+    border-radius: 2px;
+    line-height: 16px;
+    min-width: 20px;
+    text-align: center;
+}
+#search-mode:hover,
+#search-filter-mode:hover,
+#search-clear:hover {
+    background: var(--vscode-toolbar-hoverBackground);
+}
+
 #graph-container {
     flex: 1;
     width: 100%;
@@ -52,28 +134,46 @@ body {
     overflow: hidden;
 }
 
-#legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
+/* ---- Footer (always visible, shows selected node info) ---- */
+
+#footer {
     padding: 4px 8px;
     background: var(--vscode-sideBar-background);
     border-top: 1px solid var(--vscode-panel-border);
     flex-shrink: 0;
-}
-
-.legend-item {
+    font-size: 11px;
+    min-height: 20px;
     display: flex;
     align-items: center;
-    gap: 4px;
-    font-size: 10px;
+    gap: 12px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
 }
 
-.legend-swatch {
+#footer .info-label {
+    color: var(--vscode-descriptionForeground);
+    font-size: 10px;
+    text-transform: uppercase;
+    margin-right: 2px;
+}
+
+#footer .info-value {
+    color: var(--vscode-editor-foreground);
+}
+
+#footer .info-type-swatch {
     display: inline-block;
-    width: 10px;
-    height: 10px;
+    width: 8px;
+    height: 8px;
     border-radius: 2px;
+    margin-right: 4px;
+    vertical-align: middle;
+}
+
+#footer .footer-placeholder {
+    color: var(--vscode-descriptionForeground);
+    font-size: 10px;
 }
 
 #empty-message {
@@ -90,11 +190,11 @@ body {
 /* ---- Settings panel ---- */
 
 #settings-panel {
-    position: fixed;
+    position: absolute;
     top: 0;
     right: 0;
+    bottom: 0;
     width: 280px;
-    height: 100vh;
     background: var(--vscode-sideBar-background);
     border-left: 1px solid var(--vscode-panel-border);
     z-index: 100;
@@ -147,6 +247,21 @@ body {
     text-transform: uppercase;
     color: var(--vscode-descriptionForeground);
     margin-bottom: 2px;
+}
+
+.settings-title[data-collapse] {
+    cursor: pointer;
+    user-select: none;
+}
+
+.settings-title[data-collapse]:hover {
+    color: var(--vscode-foreground);
+}
+
+.settings-content {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
 }
 
 .settings-section select {
@@ -229,6 +344,16 @@ body {
 .settings-checkbox input[type="checkbox"] {
     margin: 0;
     cursor: pointer;
+}
+
+.settings-inline input[type="color"] {
+    width: 32px;
+    height: 22px;
+    padding: 0;
+    border: 1px solid var(--vscode-panel-border);
+    border-radius: 2px;
+    cursor: pointer;
+    background: none;
 }
 
 .settings-btn {

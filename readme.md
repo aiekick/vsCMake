@@ -60,15 +60,25 @@ An interactive force-directed graph that visualizes CMake target dependencies:
 
 - **Canvas-based rendering** with pan (click & drag background) and zoom (mouse wheel)
 - **Node interaction**: click a node to select it and highlight its edges, drag a node to reposition it
-- **Double-click a node** to jump to its `add_executable`/`add_library` definition in CMakeLists.txt
+- **Focused subgraph view**: double-click a node to explore only its recursively connected dependencies. A breadcrumb bar shows navigation history and lets you go back. The focused root node is highlighted with a golden halo
+- **Edge gradient**: when a node is selected, each connected edge shows a gradient from the base node's color to white, making it easy to distinguish edge directions
 - **Double-click the background** to fit the entire graph in the view
-- **Type filtering**: toggle visibility of target types (Executable, Static Library, etc.) via checkboxes
+- **Search & filter**: search nodes by name or file path. Two filter modes:
+  - **Dim**: non-matching nodes are faded out
+  - **Hide**: non-matching nodes are completely removed from the graph and simulation
+- **Type filtering**: toggle visibility of target types (Executable, Static Library, etc.) via checkboxes in the header
 - **Edge styles**: choose between Tapered, Chevrons, or Line in the settings panel
-- **Edge direction**: show edges toward dependencies or inverted
+- **Edge direction**: show edges as child-to-parent (dependency) or parent-to-child (inverse). Changing direction while in a focused subgraph rebuilds the visible nodes accordingly
 - **Force simulation**: nodes are positioned automatically via a physics simulation with configurable parameters (repulsion, attraction, gravity, damping, etc.)
-- **Settings panel** (gear icon): adjust simulation parameters, start/stop/restart the simulation, fit the graph to view, and export a screenshot as PNG
-- **Legend** showing the color for each target type
-- **State persistence**: camera position, zoom level, edge style and simulation parameters are preserved across view refreshes
+- **Settings panel** (gear icon): collapsible sections for Edges, Node Colors, Force Simulation, Display, and Controls. Includes:
+  - Edge style and direction selectors
+  - Color pickers to customize node colors per target type
+  - Tapered edge width slider
+  - All simulation parameter sliders with per-parameter reset buttons
+  - Minimap toggle
+  - Start/Stop, Restart, Fit to View, and Screenshot (PNG) buttons
+- **Minimap**: a small overview of the full graph in the corner, with interactive pan and zoom
+- **Full workspace persistence**: all graph settings (colors, edge style, direction, simulation parameters, panel visibility, section collapse states) are saved in workspace settings and survive VS Code restarts
 
 ### CTest Integration
 
@@ -137,7 +147,13 @@ All settings are under the `vsCMake` prefix.
 | `showJobsOption` | `false` | Show the Jobs (parallelism) row in Build and Test sections |
 | `defaultJobs` | `0` | Default number of parallel jobs (`0` = let CMake/CTest decide) |
 | `colorizeOutput` | `true` | Enable syntax highlighting in the output panel |
-| `graphEdgeDirection` | `dependency` | Edge arrow direction in the dependency graph: `dependency` (toward dependency) or `inverse` |
+| `graphEdgeDirection` | `dependency` | Edge arrow direction: `dependency` (child-to-parent) or `inverse` (parent-to-child) |
+| `graphEdgeStyle` | `tapered` | Edge rendering style: `tapered`, `chevrons`, or `line` |
+| `graphTaperedWidth` | `1.0` | Width multiplier for tapered edges (0.1 -- 5.0) |
+| `graphNodeColors` | `{}` | Custom colors per target type (e.g. `{"EXECUTABLE": "#ff0000"}`) |
+| `graphSimEnabled` | `true` | Enable the force simulation |
+| `graphMinimap` | `true` | Show the minimap overlay |
+| `graphSettingsVisible` | `false` | Whether the settings panel is open |
 
 The `${workspaceFolder}` variable is supported and resolved automatically in path settings.
 

@@ -243,29 +243,54 @@ Pure TypeScript compiled to a single IIFE bundle (via esbuild). Runs in the webv
 - Rectangular nodes with rounded corners, auto-contrast text color
 - Three edge styles: tapered (triangle), chevrons (>>>), line
 - Off-screen culling for both nodes and edges
+- Edge gradient on selected node: `CanvasGradient` from the base node's color to white (type signature `string | CanvasGradient` across all draw functions)
+- Focused root node golden halo via `ctx.shadowBlur` / `ctx.shadowColor`
+- Minimap: scaled overview with interactive pan/zoom, drawn using the same render pipeline
 
 **Interaction:**
 - Pan: click & drag on background
 - Zoom: mouse wheel (centered on cursor)
 - Node drag: click & drag on a node
 - Selection: click a node to highlight it and its edges
-- Double-click node: sends message to open target definition
+- Double-click node: opens focused subgraph view (directed BFS via `buildConnectedSubgraph()`)
+- Double-click focused root node: re-centers world origin on the node (gravity re-center)
 - Double-click background: fit graph to view (`centerOnNodes()`)
+- Breadcrumb bar: navigation history with clickable items + search controls (filter input, mode toggle, visibility toggle)
+
+**Focused subgraph view:**
+- `focusOnNode()` builds a directed BFS from the selected node using `buildConnectedSubgraph()`
+- BFS direction respects `edgeDirection` setting: `child-to-parent` follows `from->to`, `parent-to-child` follows `to->from`
+- World origin is shifted to the focused node via `shiftOriginToNode()` so gravity naturally centers around it. Camera is compensated so user sees no visual jump
+- Focused root node is pinned in the force simulation (skipped in force application loop)
+- `isNodeFiltered()` combines type filters + search hide-mode + focus visibility into a single predicate, replacing all individual `activeFilters.has()` checks
+- Changing `edgeDirection` while focused rebuilds the visible set without relayout
 
 **Force simulation:**
-- Repulsion (Coulomb), attraction on edges (Hooke), central gravity
-- Configurable parameters: repulsion, attraction, gravity, min distance, steps/frame, threshold, damping
+- Repulsion (Coulomb), attraction on edges (Hooke), central gravity toward world origin `(0, 0)`
+- Configurable parameters: repulsion, attraction, gravity, link length, min distance, steps/frame, threshold, damping
 - Auto-stops when total movement drops below threshold
 - Optional auto-pause during node drag
+- `restartSimIfEnabled()` helper: used by filter changes, direction changes, breadcrumb navigation
 
 **Settings panel:**
+- Collapsible sections (Edges, Node Colors, Force Simulation, Display, Controls) with persisted collapse state
 - Edge style and direction selectors
+- Color pickers per target type (updates all nodes + filter checkboxes in real-time)
+- Tapered width slider
 - Simulation parameter sliders with per-parameter reset buttons
+- Minimap toggle, auto-pause checkbox
 - Start/Stop, Restart, Fit to View, Screenshot buttons
-- Auto-pause during drag checkbox
+- Panel open/close state persisted to workspace settings
 
 **State persistence:**
-- Camera position, zoom, edge style and simulation parameters are saved via `vscode.setState()` / `vscode.getState()` and survive view refreshes
+- Camera position and zoom are saved via `vscode.setState()` / `vscode.getState()` (survives webview refresh)
+- All graph settings (edge style, direction, colors, simulation parameters, minimap, collapse states, panel visibility) are persisted to workspace settings via `updateSetting` messages to the provider, which calls `vscode.workspace.getConfiguration('vsCMake').update(key, value, ConfigurationTarget.Workspace)`
+- On load, provider reads all settings and sends them in the `update` message; webview applies them via `applySettingsFromProvider()`
+- Settings panel is restored after `setupCanvas()` to ensure the container is visible
+
+**Relayout policy:**
+- `centerOnNodes()` is only called in 3 cases: first load, double-click on background, Fit-to-View button
+- Focus navigation, direction changes, breadcrumb navigation, and simulation restarts never trigger relayout
 
 ### CTest Discovery & Test-to-Target Mapping
 
@@ -419,14 +444,15 @@ From `tsconfig.json`:
 ## Dependencies
 
 **Runtime dependencies:**
-- `vis-data` ^8.0.3
-- `vis-network` ^10.0.2
+- `vscode-cmake-tools` ^1.5.0 -- CMake Tools extension API types
+- `vis-data` ^8.0.3, `vis-network` ^10.0.2 -- legacy (no longer used by the dependency graph which is now pure Canvas2D, but still declared in package.json)
 
-Dev dependencies:
+**Dev dependencies:**
 - `@types/node` ^20.0.0
 - `@types/vscode` ^1.80.0
 - `typescript` ^5.9.3
 - `esbuild` ^0.27.3
+- `archiver` ^7.0.1 -- used by the custom VSIX packager
 
 ## Quick Reference
 

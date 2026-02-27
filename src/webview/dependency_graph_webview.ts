@@ -41,6 +41,18 @@ let edgeStyle: 'tapered' | 'chevrons' | 'line' = 'tapered';
 let edgeDirection: 'parent-to-child' | 'child-to-parent' = 'child-to-parent';
 let simEnabled = true;       // user toggle: allows/prevents sim from running
 let autoPauseDuringDrag = false;
+let searchFilter = '';
+let searchMode: 'name' | 'path' = 'name';
+let searchFilterMode: 'dim' | 'hide' = 'hide'; // dim = lower opacity, hide = remove from graph
+let minimapEnabled = true;
+let taperedWidthFactor = 2.0;
+let settingsCollapseState: Record<string, boolean> = { edges: false, colors: true, simulation: true, display: false, controls: false };
+let settingsPanelVisible = false;
+
+// Focused view state: when non-null, only show the recursively connected subgraph
+let focusedNodeId: string | null = null;
+let focusHistory: { nodeId: string; label: string }[] = [];
+let focusVisibleIds: Set<string> | null = null; // precomputed set of visible node ids in focus mode
 
 const TARGET_TYPES = [
     'EXECUTABLE', 'STATIC_LIBRARY', 'SHARED_LIBRARY',
@@ -79,13 +91,13 @@ let firstLayout = true;
 // Force simulation parameters (defaults)
 // ------------------------------------------------------------
 const SIM_DEFAULTS: Record<string, number> = {
-    repulsion: 50000,
+    repulsion: 10000,
     attraction: 0.1,
     gravity: 0.001,
-    linkLength: 0.1, // ideal link length smaller = stronger spring
+    linkLength: 0.05, // ideal link length smaller = stronger spring
     minDistance: 5000,
     stepsPerFrame: 5,
-    threshold: 0.1,
+    threshold: 5,
     damping: 0.85,
 };
 
@@ -101,29 +113,17 @@ let simRunning = false;
 let simAnimFrame: number | null = null;
 
 // ------------------------------------------------------------
-// State persistence (camera + settings, survives refresh)
+// State persistence (camera only, survives webview refresh)
+// Settings are persisted to workspace via updateSetting messages.
 // ------------------------------------------------------------
 interface PersistedState {
     camX?: number;
     camY?: number;
     zoom?: number;
-    edgeStyle?: string;
-    simRepulsion?: number;
-    simAttraction?: number;
-    simGravity?: number;
-    simLinkLength?: number;
-    simMinDistance?: number;
-    simStepsPerFrame?: number;
-    simThreshold?: number;
-    simDamping?: number;
 }
 
 function saveState(): void {
-    vscode.setState({
-        camX, camY, zoom, edgeStyle,
-        simRepulsion, simAttraction, simGravity, simLinkLength,
-        simMinDistance, simStepsPerFrame, simThreshold, simDamping,
-    } as PersistedState);
+    vscode.setState({ camX, camY, zoom } as PersistedState);
 }
 
 function restoreState(): boolean {
@@ -132,16 +132,39 @@ function restoreState(): boolean {
     camX = s.camX;
     camY = s.camY!;
     zoom = s.zoom!;
-    if (s.edgeStyle) { edgeStyle = s.edgeStyle as typeof edgeStyle; }
-    if (s.simRepulsion !== undefined) { simRepulsion = s.simRepulsion; }
-    if (s.simAttraction !== undefined) { simAttraction = s.simAttraction; }
-    if (s.simGravity !== undefined) { simGravity = s.simGravity; }
-    if (s.simLinkLength !== undefined) { simLinkLength = s.simLinkLength; }
-    if (s.simMinDistance !== undefined) { simMinDistance = s.simMinDistance; }
-    if (s.simStepsPerFrame !== undefined) { simStepsPerFrame = s.simStepsPerFrame; }
-    if (s.simThreshold !== undefined) { simThreshold = s.simThreshold; }
-    if (s.simDamping !== undefined) { simDamping = s.simDamping; }
     return true;
+}
+
+// ------------------------------------------------------------
+// Search filter helpers
+// ------------------------------------------------------------
+function nodeMatchesSearch(node: GraphNode): boolean {
+    if (!searchFilter) { return true; }
+    const query = searchFilter.toLowerCase();
+    const target = searchMode === 'name' ? node.label : node.sourcePath;
+    // Support regex for power users: if the query is a valid regex, use it
+    try {
+        if (searchFilter.includes('*') || searchFilter.includes('(') || searchFilter.includes('[')) {
+            return new RegExp(searchFilter, 'i').test(target);
+        }
+    } catch { /* not a valid regex, fallback to simple match */ }
+    return target.toLowerCase().includes(query);
+}
+
+/**
+ * Returns true if a node should be completely excluded from the graph
+ * (simulation + rendering), like type filters in the header.
+ * Combines: activeFilters (type checkboxes) + hide-mode search + hide-mode focus.
+ */
+function isNodeFiltered(node: GraphNode): boolean {
+    // Type filter from header checkboxes
+    if (activeFilters.has(node.type)) { return true; }
+    // In "hide" mode, search and focus act as real filters
+    if (searchFilterMode === 'hide') {
+        if (searchFilter && !nodeMatchesSearch(node)) { return true; }
+        if (focusVisibleIds && !focusVisibleIds.has(node.id)) { return true; }
+    }
+    return false;
 }
 
 // ------------------------------------------------------------
@@ -210,6 +233,7 @@ function draw(): void {
     drawGrid(w, h);
     drawEdges(w, h);
     drawNodes(w, h);
+    if (minimapEnabled) { drawMinimap(w, h); }
 }
 
 function worldToScreen(wx: number, wy: number): [number, number] {
@@ -224,13 +248,12 @@ function drawEdges(w: number, h: number): void {
 
     const nodeMap = new Map<string, LayoutNode>();
     for (const ln of layoutNodes) {
-        if (!activeFilters.has(ln.node.type)) {
+        if (!isNodeFiltered(ln.node)) {
             nodeMap.set(ln.node.id, ln);
         }
     }
 
-    const selNode = selectedNodeId ? nodeMap.get(selectedNodeId) : null;
-    const selColor = selNode?.node.color ?? null;
+    const hasSearch = searchFilter.length > 0;
 
     // Draw normal edges, then highlighted on top
     for (const edge of allEdges) {
@@ -247,11 +270,19 @@ function drawEdges(w: number, h: number): void {
         if (Math.max(x1, x2) < -margin || Math.min(x1, x2) > w + margin) { continue; }
         if (Math.max(y1, y2) < -margin || Math.min(y1, y2) > h + margin) { continue; }
 
-        drawEdgeStyled(ctx, x1, y1, x2, y2, 'rgba(255, 255, 255, 0.15)');
+        // In "dim" mode, dim edges where neither endpoint matches search/focus
+        const fromMatchesSearch = !hasSearch || nodeMatchesSearch(fromLn.node);
+        const toMatchesSearch = !hasSearch || nodeMatchesSearch(toLn.node);
+        const fromInFocus = isNodeVisibleInFocus(fromLn.node.id);
+        const toInFocus = isNodeVisibleInFocus(toLn.node.id);
+        const searchDim = hasSearch && !fromMatchesSearch && !toMatchesSearch;
+        const focusDim = focusedNodeId !== null && !fromInFocus && !toInFocus;
+        const edgeAlpha = (searchDim || focusDim) ? 0.04 : 0.15;
+        drawEdgeStyled(ctx, x1, y1, x2, y2, `rgba(255, 255, 255, ${edgeAlpha})`);
     }
 
-    // Highlighted edges
-    if (selColor) {
+    // Highlighted edges with gradient: node color → white along the arrow
+    if (selectedNodeId) {
         for (const edge of allEdges) {
             const isHighlighted = edge.from === selectedNodeId || edge.to === selectedNodeId;
             if (!isHighlighted) { continue; }
@@ -260,7 +291,22 @@ function drawEdges(w: number, h: number): void {
             if (!fromLn || !toLn) { continue; }
             const [x1, y1] = worldToScreen(fromLn.x, fromLn.y);
             const [x2, y2] = worldToScreen(toLn.x, toLn.y);
-            drawEdgeStyled(ctx, x1, y1, x2, y2, selColor, 0.6);
+
+            // Compute visual arrow direction (after edgeDirection swap)
+            // The wide end (base) is at sx1,sy1 and the tip at sx2,sy2
+            let sx1 = x1, sy1 = y1, sx2 = x2, sy2 = y2;
+            let baseNode = fromLn;
+            if (edgeDirection === 'child-to-parent') {
+                sx1 = x2; sy1 = y2; sx2 = x1; sy2 = y1;
+                baseNode = toLn;
+            }
+
+            // Gradient from the base node's color (wide end) → white (tip)
+            const grad = ctx.createLinearGradient(sx1, sy1, sx2, sy2);
+            grad.addColorStop(0, baseNode.node.color);
+            grad.addColorStop(1, '#ffffff');
+
+            drawEdgeStyled(ctx, x1, y1, x2, y2, grad, 0.6);
         }
     }
 }
@@ -269,7 +315,7 @@ function drawEdges(w: number, h: number): void {
 function drawEdgeStyled(
     c: CanvasRenderingContext2D,
     x1: number, y1: number, x2: number, y2: number,
-    color: string, alpha = 1,
+    color: string | CanvasGradient, alpha = 1,
 ): void {
     // Swap direction if inverted
     let sx1 = x1, sy1 = y1, sx2 = x2, sy2 = y2;
@@ -287,7 +333,7 @@ function drawEdgeStyled(
 function drawTaperedEdge(
     c: CanvasRenderingContext2D,
     x1: number, y1: number, x2: number, y2: number,
-    color: string, alpha = 1,
+    color: string | CanvasGradient, alpha = 1,
 ): void {
     const dx = x2 - x1;
     const dy = y2 - y1;
@@ -297,8 +343,8 @@ function drawTaperedEdge(
     const px = -dy / len;
     const py = dx / len;
 
-    const wideHalf = Math.max(1.5, 3 * zoom);
-    const narrowHalf = Math.max(0.3, 0.5 * zoom);
+    const wideHalf = Math.max(1.5, 3 * zoom * taperedWidthFactor);
+    const narrowHalf = Math.max(0.3, 0.5 * zoom * taperedWidthFactor);
 
     c.globalAlpha = alpha;
     c.fillStyle = color;
@@ -316,7 +362,7 @@ function drawTaperedEdge(
 function drawChevronEdge(
     c: CanvasRenderingContext2D,
     x1: number, y1: number, x2: number, y2: number,
-    color: string, alpha = 1,
+    color: string | CanvasGradient, alpha = 1,
 ): void {
     const dx = x2 - x1;
     const dy = y2 - y1;
@@ -355,7 +401,7 @@ function drawChevronEdge(
 function drawLineEdge(
     c: CanvasRenderingContext2D,
     x1: number, y1: number, x2: number, y2: number,
-    color: string, alpha = 1,
+    color: string | CanvasGradient, alpha = 1,
 ): void {
     c.globalAlpha = alpha;
     c.strokeStyle = color;
@@ -376,8 +422,10 @@ function drawNodes(w: number, h: number): void {
     const minFontSize = 3;
     const fontSize = Math.max(minFontSize, 11 * zoom);
 
+    const hasSearch = searchFilter.length > 0;
+
     for (const ln of layoutNodes) {
-        if (activeFilters.has(ln.node.type)) { continue; }
+        if (isNodeFiltered(ln.node)) { continue; }
 
         const [sx, sy] = worldToScreen(ln.x, ln.y);
         const sw = ln.w * zoom;
@@ -391,6 +439,11 @@ function drawNodes(w: number, h: number): void {
             continue;
         }
 
+        // In "dim" mode, reduce opacity for non-matching nodes
+        const matchesSearch = !hasSearch || nodeMatchesSearch(ln.node);
+        const inFocus = isNodeVisibleInFocus(ln.node.id);
+        const nodeAlpha = (!matchesSearch || !inFocus) ? 0.12 : 1;
+
         const color = ln.node.color;
         const borderColor = darken(color);
 
@@ -398,11 +451,25 @@ function drawNodes(w: number, h: number): void {
         const zoom3 = 3 * zoom;
         const zoom4 = 4 * zoom;
 
+        ctx.globalAlpha = nodeAlpha;
         ctx.fillStyle = color;
         ctx.strokeStyle = borderColor;
         ctx.lineWidth = Math.max(1, zoom2);
         const r = Math.min(zoom4, sw * 0.08);
         drawBox(ctx, sx, sy, sw, sh, r);
+
+        // Focused root node halo (golden glow)
+        if (focusedNodeId && ln.node.id === focusedNodeId) {
+            ctx.save();
+            ctx.shadowColor = '#FFD700';
+            ctx.shadowBlur = Math.max(12, 20 * zoom);
+            ctx.strokeStyle = '#FFD700';
+            ctx.lineWidth = Math.max(2, zoom3);
+            const haloR = Math.min(zoom4 + zoom2, (sw + zoom4 * 2) * 0.08);
+            drawBox(ctx, sx, sy, sw + zoom4 * 2, sh + zoom4 * 2, haloR, true);
+            ctx.restore();
+            ctx.globalAlpha = nodeAlpha;
+        }
 
         // Selection border
         if (ln.node.id === selectedNodeId) {
@@ -411,7 +478,7 @@ function drawNodes(w: number, h: number): void {
             drawBox(ctx, sx, sy, sw + zoom4, sh + zoom4, r + zoom2, true);
         }
 
-        if (fontSize <= minFontSize) { continue; }
+        if (fontSize <= minFontSize) { ctx.globalAlpha = 1; continue; }
 
         // Label with auto contrast
         const textColor = contrastTextColor(color);
@@ -420,6 +487,7 @@ function drawNodes(w: number, h: number): void {
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(ln.node.label, sx, sy);
+        ctx.globalAlpha = 1;
     }
 }
 
@@ -490,12 +558,157 @@ function drawGrid(w: number, h: number): void {
 }
 
 // ------------------------------------------------------------
+// Minimap
+// ------------------------------------------------------------
+const MINIMAP_W = 150;
+const MINIMAP_H = 100;
+const MINIMAP_MARGIN = 8;
+
+// Cached minimap transform for mouse interaction
+let minimapTransform: {
+    mx: number; my: number; // minimap top-left in canvas space
+    scale: number;
+    wMinX: number; wMinY: number;
+    canvasW: number; canvasH: number;
+} | null = null;
+let isDraggingMinimap = false;
+
+function drawMinimap(canvasW: number, canvasH: number): void {
+    if (!ctx || layoutNodes.length === 0) { return; }
+
+    // Compute bounding box of all visible nodes
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let count = 0;
+    for (const ln of layoutNodes) {
+        if (isNodeFiltered(ln.node)) { continue; }
+        minX = Math.min(minX, ln.x - ln.w / 2);
+        maxX = Math.max(maxX, ln.x + ln.w / 2);
+        minY = Math.min(minY, ln.y - NODE_H / 2);
+        maxY = Math.max(maxY, ln.y + NODE_H / 2);
+        count++;
+    }
+    if (count === 0) { return; }
+
+    const worldW = maxX - minX || 1;
+    const worldH = maxY - minY || 1;
+
+    // Add some padding to the world bounds
+    const pad = Math.max(worldW, worldH) * 0.05;
+    const wMinX = minX - pad;
+    const wMinY = minY - pad;
+    const wW = worldW + pad * 2;
+    const wH = worldH + pad * 2;
+
+    // Minimap position (bottom-left)
+    const mmx = MINIMAP_MARGIN;
+    const mmy = canvasH - MINIMAP_H - MINIMAP_MARGIN;
+
+    // Scale factor: fit the entire graph world into the minimap
+    const scaleX = MINIMAP_W / wW;
+    const scaleY = MINIMAP_H / wH;
+    const scale = Math.min(scaleX, scaleY);
+
+    // Save transform for mouse interaction
+    minimapTransform = { mx: mmx, my: mmy, scale, wMinX, wMinY, canvasW, canvasH };
+
+    // Background
+    ctx.fillStyle = 'rgba(30, 30, 30, 0.85)';
+    ctx.fillRect(mmx, mmy, MINIMAP_W, MINIMAP_H);
+    ctx.strokeStyle = 'rgba(128, 128, 128, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(mmx, mmy, MINIMAP_W, MINIMAP_H);
+
+    // Draw edges as thin lines
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+    ctx.lineWidth = 0.5;
+    const nodeMap = new Map<string, LayoutNode>();
+    for (const ln of layoutNodes) {
+        if (!isNodeFiltered(ln.node)) {
+            nodeMap.set(ln.node.id, ln);
+        }
+    }
+    const hasSearch = searchFilter.length > 0;
+    for (const edge of allEdges) {
+        const fromLn = nodeMap.get(edge.from);
+        const toLn = nodeMap.get(edge.to);
+        if (!fromLn || !toLn) { continue; }
+        const ex1 = mmx + (fromLn.x - wMinX) * scale;
+        const ey1 = mmy + (fromLn.y - wMinY) * scale;
+        const ex2 = mmx + (toLn.x - wMinX) * scale;
+        const ey2 = mmy + (toLn.y - wMinY) * scale;
+        ctx.beginPath();
+        ctx.moveTo(ex1, ey1);
+        ctx.lineTo(ex2, ey2);
+        ctx.stroke();
+    }
+
+    // Draw nodes as small dots (reflecting search/focus dim)
+    for (const ln of layoutNodes) {
+        if (isNodeFiltered(ln.node)) { continue; }
+        // In "dim" mode, reduce opacity for non-matching nodes
+        const matchesSearch = !hasSearch || nodeMatchesSearch(ln.node);
+        const inFocus = isNodeVisibleInFocus(ln.node.id);
+        const isDimmed = !matchesSearch || !inFocus;
+        const nx = mmx + (ln.x - wMinX) * scale;
+        const ny = mmy + (ln.y - wMinY) * scale;
+        const dotSize = Math.max(2, ln.w * scale * 0.3);
+        ctx.globalAlpha = isDimmed ? 0.15 : 1;
+        ctx.fillStyle = ln.node.id === selectedNodeId ? '#ffffff' : ln.node.color;
+        ctx.fillRect(nx - dotSize / 2, ny - dotSize / 2, dotSize, dotSize);
+    }
+    ctx.globalAlpha = 1;
+
+    // Draw viewport rectangle
+    const viewWorldLeft = -camX / zoom;
+    const viewWorldTop = -camY / zoom;
+    const viewWorldRight = viewWorldLeft + canvasW / zoom;
+    const viewWorldBottom = viewWorldTop + canvasH / zoom;
+
+    const vx = mmx + (viewWorldLeft - wMinX) * scale;
+    const vy = mmy + (viewWorldTop - wMinY) * scale;
+    const vw = (viewWorldRight - viewWorldLeft) * scale;
+    const vh = (viewWorldBottom - viewWorldTop) * scale;
+
+    ctx.strokeStyle = 'rgba(255, 200, 50, 0.8)';
+    ctx.lineWidth = 1.5;
+    // Clip the viewport rectangle to minimap bounds
+    const clipX = Math.max(mmx, vx);
+    const clipY = Math.max(mmy, vy);
+    const clipR = Math.min(mmx + MINIMAP_W, vx + vw);
+    const clipB = Math.min(mmy + MINIMAP_H, vy + vh);
+    if (clipR > clipX && clipB > clipY) {
+        ctx.strokeRect(clipX, clipY, clipR - clipX, clipB - clipY);
+    }
+}
+
+/** Check if a screen point falls within the minimap bounds */
+function isInMinimap(sx: number, sy: number): boolean {
+    if (!minimapEnabled || !minimapTransform) { return false; }
+    const { mx, my } = minimapTransform;
+    return sx >= mx && sx <= mx + MINIMAP_W && sy >= my && sy <= my + MINIMAP_H;
+}
+
+/** Convert minimap screen coords to world coords, then center the camera there */
+function minimapPanTo(sx: number, sy: number): void {
+    if (!minimapTransform || !canvas) { return; }
+    const { mx, my, scale, wMinX, wMinY } = minimapTransform;
+    // Convert minimap position to world coords
+    const worldX = (sx - mx) / scale + wMinX;
+    const worldY = (sy - my) / scale + wMinY;
+    // Center the camera on this world position
+    camX = canvas.clientWidth / 2 - worldX * zoom;
+    camY = canvas.clientHeight / 2 - worldY * zoom;
+    saveState();
+    draw();
+}
+
+// ------------------------------------------------------------
 // Hit testing
 // ------------------------------------------------------------
 function hitTestNode(screenX: number, screenY: number): LayoutNode | null {
     for (let i = layoutNodes.length - 1; i >= 0; i--) {
         const ln = layoutNodes[i];
-        if (activeFilters.has(ln.node.type)) { continue; }
+        if (isNodeFiltered(ln.node)) { continue; }
         const [sx, sy] = worldToScreen(ln.x, ln.y);
         const hw = (ln.w * zoom) / 2;
         const hh = (NODE_H * zoom) / 2;
@@ -518,11 +731,20 @@ function attachCanvasEvents(c: HTMLCanvasElement): void {
         const mx = e.clientX - rect.left;
         const my = e.clientY - rect.top;
 
+        // Check minimap first — capture events there
+        if (isInMinimap(mx, my)) {
+            isDraggingMinimap = true;
+            minimapPanTo(mx, my);
+            c.style.cursor = 'crosshair';
+            return;
+        }
+
         const hit = hitTestNode(mx, my);
         if (hit) {
             isDraggingNode = true;
             dragNode = hit;
             selectedNodeId = hit.node.id;
+            updateFooter();
             const [sx, sy] = worldToScreen(hit.x, hit.y);
             dragOffsetX = mx - sx;
             dragOffsetY = my - sy;
@@ -544,6 +766,13 @@ function attachCanvasEvents(c: HTMLCanvasElement): void {
     });
 
     window.addEventListener('mousemove', (e: MouseEvent) => {
+        if (isDraggingMinimap) {
+            const rect = c.getBoundingClientRect();
+            const mx = e.clientX - rect.left;
+            const my = e.clientY - rect.top;
+            minimapPanTo(mx, my);
+            return;
+        }
         if (isDraggingNode && dragNode) {
             const rect = c.getBoundingClientRect();
             const mx = e.clientX - rect.left;
@@ -561,6 +790,11 @@ function attachCanvasEvents(c: HTMLCanvasElement): void {
 
     window.addEventListener('mouseup', (e: MouseEvent) => {
         if (e.button !== 0) { return; }
+        if (isDraggingMinimap) {
+            isDraggingMinimap = false;
+            c.style.cursor = 'grab';
+            return;
+        }
         if (isDraggingNode) {
             isDraggingNode = false;
             dragNode = null;
@@ -571,6 +805,7 @@ function attachCanvasEvents(c: HTMLCanvasElement): void {
             }
         } else if (!wasPanning) {
             selectedNodeId = null;
+            updateFooter();
         }
         if (isPanning) {
             isPanning = false;
@@ -584,9 +819,20 @@ function attachCanvasEvents(c: HTMLCanvasElement): void {
         const rect = c.getBoundingClientRect();
         const mx = e.clientX - rect.left;
         const my = e.clientY - rect.top;
-        const hit = hitTestNode(mx, my);
-        if (hit) {
-            vscode.postMessage({ type: 'nodeDoubleClick', targetId: hit.node.id });
+        // Ignore double-click on minimap
+        if (isInMinimap(mx, my)) { return; }
+        // Use selectedNodeId from mousedown instead of re-hit-testing,
+        // because the node may have moved slightly during the drag between clicks
+        if (selectedNodeId) {
+            if (selectedNodeId === focusedNodeId) {
+                // Already focused — just re-center gravity origin on this node
+                shiftOriginToNode(selectedNodeId);
+                restartSimIfEnabled();
+                draw();
+                return;
+            }
+            // Focus on the selected node and all recursively connected nodes
+            focusOnNode(selectedNodeId);
         } else {
             // Double-click on background: fit graph to view
             centerOnNodes();
@@ -599,6 +845,19 @@ function attachCanvasEvents(c: HTMLCanvasElement): void {
         const rect = c.getBoundingClientRect();
         const mx = e.clientX - rect.left;
         const my = e.clientY - rect.top;
+
+        // Zoom from minimap: zoom centered on the minimap world position
+        if (isInMinimap(mx, my) && minimapTransform) {
+            const worldX = (mx - minimapTransform.mx) / minimapTransform.scale + minimapTransform.wMinX;
+            const worldY = (my - minimapTransform.my) / minimapTransform.scale + minimapTransform.wMinY;
+            const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+            zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom * factor));
+            camX = c.clientWidth / 2 - worldX * zoom;
+            camY = c.clientHeight / 2 - worldY * zoom;
+            saveState();
+            draw();
+            return;
+        }
 
         const wxBefore = (mx - camX) / zoom;
         const wyBefore = (my - camY) / zoom;
@@ -619,6 +878,15 @@ function attachCanvasEvents(c: HTMLCanvasElement): void {
 // ------------------------------------------------------------
 // Force-directed simulation
 // ------------------------------------------------------------
+
+/** Restart simulation if it's enabled (convenience for visibility changes) */
+function restartSimIfEnabled(): void {
+    if (simEnabled) {
+        stopSimulation();
+        startSimulation();
+    }
+}
+
 function startSimulation(): void {
     if (simRunning || !simEnabled) { return; }
     simRunning = true;
@@ -647,11 +915,29 @@ function simulationStep(): void {
         const fx = new Float64Array(n);
         const fy = new Float64Array(n);
 
-        // Repulsion between all pairs (Coulomb)
+        // Build adjacency set and degree count for connectivity-aware repulsion
+        const adjacency = new Map<string, Set<string>>();
+        const degree = new Map<string, number>();
+        for (const edge of allEdges) {
+            if (!adjacency.has(edge.from)) { adjacency.set(edge.from, new Set()); }
+            if (!adjacency.has(edge.to)) { adjacency.set(edge.to, new Set()); }
+            adjacency.get(edge.from)!.add(edge.to);
+            adjacency.get(edge.to)!.add(edge.from);
+        }
         for (let i = 0; i < n; i++) {
-            if (activeFilters.has(layoutNodes[i].node.type)) { continue; }
+            degree.set(layoutNodes[i].node.id, adjacency.get(layoutNodes[i].node.id)?.size ?? 0);
+        }
+
+        // Repulsion between all pairs (Coulomb) — stronger for unconnected high-degree nodes
+        for (let i = 0; i < n; i++) {
+            if (isNodeFiltered(layoutNodes[i].node)) { continue; }
+            const idI = layoutNodes[i].node.id;
+            const degI = degree.get(idI) ?? 0;
+            const adjI = adjacency.get(idI);
             for (let j = i + 1; j < n; j++) {
-                if (activeFilters.has(layoutNodes[j].node.type)) { continue; }
+                if (isNodeFiltered(layoutNodes[j].node)) { continue; }
+                const idJ = layoutNodes[j].node.id;
+                const connected = adjI !== undefined && adjI.has(idJ);
                 let dx = layoutNodes[j].x - layoutNodes[i].x;
                 let dy = layoutNodes[j].y - layoutNodes[i].y;
                 const distSq = dx * dx + dy * dy;
@@ -668,6 +954,13 @@ function simulationStep(): void {
                 if (dist < simMinDistance) {
                     force *= (simMinDistance / dist);
                 }
+                // Boost repulsion for unconnected nodes based on their degree
+                // High-degree nodes push harder to reduce clutter around hubs
+                if (!connected) {
+                    const degJ = degree.get(idJ) ?? 0;
+                    const degBoost = 1 + 0.15 * (degI + degJ);
+                    force *= degBoost;
+                }
                 const forceX = (dx / dist) * force;
                 const forceY = (dy / dist) * force;
                 fx[i] -= forceX;
@@ -682,8 +975,8 @@ function simulationStep(): void {
             const fi = nodeIndex.get(edge.from);
             const ti = nodeIndex.get(edge.to);
             if (fi === undefined || ti === undefined) { continue; }
-            if (activeFilters.has(layoutNodes[fi].node.type)) { continue; }
-            if (activeFilters.has(layoutNodes[ti].node.type)) { continue; }
+            if (isNodeFiltered(layoutNodes[fi].node)) { continue; }
+            if (isNodeFiltered(layoutNodes[ti].node)) { continue; }
             const dx = layoutNodes[ti].x - layoutNodes[fi].x;
             const dy = layoutNodes[ti].y - layoutNodes[fi].y;
             const dist = Math.sqrt(dx * dx + dy * dy);
@@ -705,7 +998,7 @@ function simulationStep(): void {
 
         // Central gravity toward origin
         for (let i = 0; i < n; i++) {
-            if (activeFilters.has(layoutNodes[i].node.type)) { continue; }
+            if (isNodeFiltered(layoutNodes[i].node)) { continue; }
             const px = layoutNodes[i].x;
             const py = layoutNodes[i].y;
             const dist = Math.sqrt(px * px + py * py);
@@ -718,9 +1011,11 @@ function simulationStep(): void {
         // Apply forces with velocity damping
         const maxSpeed = 15;
         for (let i = 0; i < n; i++) {
-            if (activeFilters.has(layoutNodes[i].node.type)) { continue; }
+            if (isNodeFiltered(layoutNodes[i].node)) { continue; }
             // Don't move the node being dragged
             if (isDraggingNode && dragNode === layoutNodes[i]) { continue; }
+            // Pin the focused root node in place (anchor for the subgraph)
+            if (focusedNodeId && layoutNodes[i].node.id === focusedNodeId) { continue; }
 
             const ln = layoutNodes[i];
             ln.vx = (ln.vx + fx[i]) * simDamping;
@@ -766,8 +1061,9 @@ function onResize(): void {
 function recalcContainerHeight(): void {
     const container = document.getElementById('graph-container')!;
     const toolbarH = document.getElementById('toolbar')?.offsetHeight ?? 0;
-    const legendH = document.getElementById('legend')?.offsetHeight ?? 0;
-    const available = window.innerHeight - toolbarH - legendH;
+    const footerH = document.getElementById('footer')?.offsetHeight ?? 0;
+    const breadcrumbH = document.getElementById('breadcrumb-bar')?.offsetHeight ?? 0;
+    const available = window.innerHeight - toolbarH - footerH - breadcrumbH;
     container.style.height = `${Math.max(200, available)}px`;
 }
 
@@ -803,18 +1099,17 @@ function createGraph(nodes: GraphNode[], edges: GraphEdge[]): void {
 
     const emptyMsg = document.getElementById('empty-message')!;
 
+    initSearchBar();
     if (allNodes.length === 0) {
         document.getElementById('graph-container')!.style.display = 'none';
         emptyMsg.style.display = 'flex';
         emptyMsg.textContent = 'No targets to display';
         buildFilterCheckboxes();
-        buildLegend();
         return;
     }
 
     initLayoutNodes(allNodes);
     buildFilterCheckboxes();
-    buildLegend();
     recalcContainerHeight();
 
     setTimeout(() => {
@@ -826,6 +1121,10 @@ function createGraph(nodes: GraphNode[], edges: GraphEdge[]): void {
         draw();
         // Start force simulation
         startSimulation();
+        // Restore settings panel after container is visible
+        if (settingsPanelVisible && !settingsPanel) {
+            toggleSettings(false);
+        }
     }, 50);
 }
 
@@ -872,7 +1171,6 @@ function resetLayoutPositions(): void {
         layoutNodes[i].vx = 0;
         layoutNodes[i].vy = 0;
     }
-    centerOnNodes();
     draw();
     startSimulation();
 }
@@ -882,7 +1180,7 @@ function centerOnNodes(): void {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     let count = 0;
     for (const ln of layoutNodes) {
-        if (activeFilters.has(ln.node.type)) { continue; }
+        if (isNodeFiltered(ln.node)) { continue; }
         minX = Math.min(minX, ln.x - ln.w / 2);
         maxX = Math.max(maxX, ln.x + ln.w / 2);
         minY = Math.min(minY, ln.y - NODE_H / 2);
@@ -905,6 +1203,82 @@ function centerOnNodes(): void {
     camY = ch / 2 - centerWY * zoom;
 
     saveState();
+}
+
+// ------------------------------------------------------------
+// Search bar (lives inside #breadcrumb-bar, always visible)
+// ------------------------------------------------------------
+let searchBarInited = false;
+function initSearchBar(): void {
+    if (searchBarInited) { return; }
+    searchBarInited = true;
+
+    // Build the search controls inside the breadcrumb bar
+    const bar = document.getElementById('breadcrumb-bar')!;
+    bar.innerHTML = buildSearchControlsHtml();
+    attachSearchEvents();
+}
+
+function buildSearchControlsHtml(): string {
+    const filterIcon = searchFilterMode === 'dim' ? '\u{1F441}' : '\u{1F6AB}';
+    const filterTitle = searchFilterMode === 'dim'
+        ? 'Mode: Dim non-matching (click to switch to Hide)'
+        : 'Mode: Hide non-matching (click to switch to Dim)';
+    const modeLabel = searchMode === 'name' ? 'N' : 'P';
+    const modeTitle = searchMode === 'name'
+        ? 'Filtering by name (click to switch to path)'
+        : 'Filtering by path (click to switch to name)';
+    const placeholder = searchMode === 'name' ? 'Filter by name\u2026' : 'Filter by path\u2026';
+    return `<div id="search-container">` +
+        `<button id="search-filter-mode" title="${filterTitle}">${filterIcon}</button>` +
+        `<button id="search-mode" title="${modeTitle}">${modeLabel}</button>` +
+        `<input id="search-input" type="text" placeholder="${placeholder}" spellcheck="false" value="${escapeHtml(searchFilter)}">` +
+        `<button id="search-clear" title="Clear filter">\u2715</button>` +
+        `</div>`;
+}
+
+function attachSearchEvents(): void {
+    const input = document.getElementById('search-input') as HTMLInputElement;
+    const modeBtn = document.getElementById('search-mode') as HTMLButtonElement;
+    const filterModeBtn = document.getElementById('search-filter-mode') as HTMLButtonElement;
+    const clearBtn = document.getElementById('search-clear') as HTMLButtonElement;
+    if (!input || !modeBtn || !clearBtn || !filterModeBtn) { return; }
+
+    modeBtn.addEventListener('click', () => {
+        searchMode = searchMode === 'name' ? 'path' : 'name';
+        input.placeholder = searchMode === 'name' ? 'Filter by name\u2026' : 'Filter by path\u2026';
+        modeBtn.textContent = searchMode === 'name' ? 'N' : 'P';
+        modeBtn.title = searchMode === 'name' ? 'Filtering by name (click to switch to path)' : 'Filtering by path (click to switch to name)';
+        applySearchFilter();
+    });
+
+    filterModeBtn.addEventListener('click', () => {
+        searchFilterMode = searchFilterMode === 'dim' ? 'hide' : 'dim';
+        filterModeBtn.textContent = searchFilterMode === 'dim' ? '\u{1F441}' : '\u{1F6AB}';
+        filterModeBtn.title = searchFilterMode === 'dim'
+            ? 'Mode: Dim non-matching (click to switch to Hide)'
+            : 'Mode: Hide non-matching (click to switch to Dim)';
+        applySearchFilter();
+    });
+
+    clearBtn.addEventListener('click', () => {
+        searchFilter = '';
+        input.value = '';
+        applySearchFilter();
+    });
+
+    input.addEventListener('input', () => {
+        searchFilter = input.value;
+        applySearchFilter();
+    });
+}
+
+function applySearchFilter(): void {
+    // In hide mode, filtered nodes are excluded from simulation, so restart it
+    if (searchFilterMode === 'hide') {
+        restartSimIfEnabled();
+    }
+    draw();
 }
 
 // ------------------------------------------------------------
@@ -935,6 +1309,7 @@ function buildFilterCheckboxes(): void {
             } else {
                 activeFilters.add(type);
             }
+            restartSimIfEnabled();
             draw();
         });
 
@@ -950,42 +1325,25 @@ function buildFilterCheckboxes(): void {
 }
 
 // ------------------------------------------------------------
-// Legend
-// ------------------------------------------------------------
-function buildLegend(): void {
-    const container = document.getElementById('legend')!;
-    container.innerHTML = '';
-    const presentTypes = new Set(allNodes.map(n => n.type));
-    for (const type of TARGET_TYPES) {
-        if (!presentTypes.has(type)) { continue; }
-        const color = allNodes.find(n => n.type === type)?.color ?? '#ccc';
-        const item = document.createElement('div');
-        item.className = 'legend-item';
-        const swatch = document.createElement('span');
-        swatch.className = 'legend-swatch';
-        swatch.style.background = color;
-        item.appendChild(swatch);
-        item.appendChild(document.createTextNode(type));
-        container.appendChild(item);
-    }
-}
-
-// ------------------------------------------------------------
 // Settings panel
 // ------------------------------------------------------------
 let settingsPanel: HTMLDivElement | null = null;
 
-function toggleSettings(): void {
+function toggleSettings(persist = true): void {
     if (settingsPanel) {
         settingsPanel.remove();
         settingsPanel = null;
+        if (persist) { vscode.postMessage({ type: 'updateSetting', key: 'graphSettingsVisible', value: false }); }
         return;
     }
     settingsPanel = document.createElement('div');
     settingsPanel.id = 'settings-panel';
     settingsPanel.innerHTML = buildSettingsHtml();
-    document.body.appendChild(settingsPanel);
+    // Place inside graph-container as absolute overlay on the right side
+    const graphContainer = document.getElementById('graph-container')!;
+    graphContainer.appendChild(settingsPanel);
     attachSettingsEvents();
+    if (persist) { vscode.postMessage({ type: 'updateSetting', key: 'graphSettingsVisible', value: true }); }
 }
 
 function sliderRow(id: string, label: string, min: number, max: number, step: number, value: number, defaultVal: number): string {
@@ -999,15 +1357,212 @@ function sliderRow(id: string, label: string, min: number, max: number, step: nu
     </div>`;
 }
 
+// ------------------------------------------------------------
+// Footer (always visible, shows selected node info)
+// ------------------------------------------------------------
+function updateFooter(): void {
+    const footer = document.getElementById('footer')!;
+    if (!selectedNodeId) {
+        footer.innerHTML = '';
+        return;
+    }
+    const ln = layoutNodes.find(l => l.node.id === selectedNodeId);
+    if (!ln) {
+        footer.innerHTML = '';
+        return;
+    }
+    const n = ln.node;
+    footer.innerHTML =
+        `<span><span class="info-type-swatch" style="background:${n.color}"></span><span class="info-value">${escapeHtml(n.label)}</span></span>` +
+        `<span><span class="info-label">Type:</span> <span class="info-value">${escapeHtml(n.type)}</span></span>` +
+        `<span><span class="info-label">Path:</span> <span class="info-value" title="${escapeHtml(n.sourcePath)}">${escapeHtml(n.sourcePath)}</span></span>`;
+}
+
+function escapeHtml(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// ------------------------------------------------------------
+// Focused view with breadcrumb navigation
+// ------------------------------------------------------------
+
+/**
+ * BFS from a root node following the current edge direction.
+ * Edges: { from: target, to: dependency_it_uses }.
+ *
+ * - child-to-parent (default): follow from → to (A uses B, go to B's deps)
+ * - parent-to-child: follow to → from (descend to consumers/children)
+ */
+function buildConnectedSubgraph(rootId: string): Set<string> {
+    const visited = new Set<string>();
+    const queue = [rootId];
+
+    // Build directed adjacency based on current edge direction
+    const adj = new Map<string, string[]>();
+    for (const edge of allEdges) {
+        if (edgeDirection === 'child-to-parent') {
+            // Follow from → to (dependencies)
+            if (!adj.has(edge.from)) { adj.set(edge.from, []); }
+            adj.get(edge.from)!.push(edge.to);
+        } else {
+            // Follow to → from (consumers/children)
+            if (!adj.has(edge.to)) { adj.set(edge.to, []); }
+            adj.get(edge.to)!.push(edge.from);
+        }
+    }
+
+    while (queue.length > 0) {
+        const current = queue.shift()!;
+        if (visited.has(current)) { continue; }
+        visited.add(current);
+        const neighbors = adj.get(current);
+        if (neighbors) {
+            for (const nb of neighbors) {
+                if (!visited.has(nb)) { queue.push(nb); }
+            }
+        }
+    }
+    return visited;
+}
+
+/** Shift world origin to a node's position, compensate camera so nothing visually moves. */
+function shiftOriginToNode(nodeId: string): void {
+    const focusLn = layoutNodes.find(ln => ln.node.id === nodeId);
+    if (!focusLn) { return; }
+    const dx = focusLn.x;
+    const dy = focusLn.y;
+    for (const ln of layoutNodes) {
+        ln.x -= dx;
+        ln.y -= dy;
+    }
+    camX += dx * zoom;
+    camY += dy * zoom;
+}
+
+function focusOnNode(nodeId: string): void {
+    const node = allNodes.find(n => n.id === nodeId);
+    if (!node) { return; }
+
+    // Build the full recursively-connected subgraph from this node
+    focusVisibleIds = buildConnectedSubgraph(nodeId);
+
+    // Shift world origin to the focused node so gravity centers around it.
+    shiftOriginToNode(nodeId);
+
+    // Check if this node is already at the end of the history
+    if (focusHistory.length === 0 || focusHistory[focusHistory.length - 1].nodeId !== nodeId) {
+        focusHistory.push({ nodeId, label: node.label });
+    }
+    focusedNodeId = nodeId;
+    selectedNodeId = nodeId;
+
+    restartSimIfEnabled();
+    updateBreadcrumb();
+    updateFooter();
+    draw();
+}
+
+function exitFocusView(): void {
+    focusedNodeId = null;
+    focusHistory = [];
+    focusVisibleIds = null;
+    updateBreadcrumb();
+    restartSimIfEnabled();
+    draw();
+}
+
+function navigateBreadcrumb(index: number): void {
+    if (index < 0) {
+        // "All" clicked - exit focus view
+        exitFocusView();
+        return;
+    }
+    // Trim history to the clicked index
+    focusHistory = focusHistory.slice(0, index + 1);
+    const entry = focusHistory[index];
+    focusedNodeId = entry.nodeId;
+    selectedNodeId = entry.nodeId;
+
+    // Rebuild the connected subgraph from the navigated node
+    focusVisibleIds = buildConnectedSubgraph(entry.nodeId);
+    restartSimIfEnabled();
+    updateBreadcrumb();
+    updateFooter();
+    draw();
+}
+
+function updateBreadcrumb(): void {
+    const bar = document.getElementById('breadcrumb-bar')!;
+
+    // Always rebuild: search controls + breadcrumb items
+    let html = buildSearchControlsHtml();
+
+    if (focusedNodeId && focusHistory.length > 0) {
+        html += '<span class="breadcrumb-separator">\u2502</span>';
+        html += '<span class="breadcrumb-item" data-bc-index="-1">All</span>';
+        for (let i = 0; i < focusHistory.length; i++) {
+            html += '<span class="breadcrumb-separator">\u203A</span>';
+            if (i === focusHistory.length - 1) {
+                html += `<span class="breadcrumb-current">${escapeHtml(focusHistory[i].label)}</span>`;
+            } else {
+                html += `<span class="breadcrumb-item" data-bc-index="${i}">${escapeHtml(focusHistory[i].label)}</span>`;
+            }
+        }
+    }
+
+    bar.innerHTML = html;
+
+    // Re-attach search events
+    attachSearchEvents();
+
+    // Attach breadcrumb click events
+    bar.querySelectorAll('.breadcrumb-item').forEach(el => {
+        el.addEventListener('click', () => {
+            const idx = parseInt((el as HTMLElement).dataset.bcIndex!, 10);
+            navigateBreadcrumb(idx);
+        });
+    });
+
+    recalcContainerHeight();
+}
+
+/** Check if a node should be visible in focused view (uses precomputed set) */
+function isNodeVisibleInFocus(nodeId: string): boolean {
+    if (!focusVisibleIds) { return true; }
+    return focusVisibleIds.has(nodeId);
+}
+
+function buildNodeColorPickersHtml(): string {
+    const presentTypes = new Map<string, string>();
+    for (const n of allNodes) {
+        if (!presentTypes.has(n.type)) {
+            presentTypes.set(n.type, n.color);
+        }
+    }
+    if (presentTypes.size === 0) { return ''; }
+    let inner = '';
+    for (const [type, color] of presentTypes) {
+        inner += `<label class="settings-inline">${type}
+            <input type="color" id="s-color-${type}" value="${color}">
+        </label>`;
+    }
+    return sectionHtml('colors', 'Node Colors', inner);
+}
+
+function sectionHtml(id: string, title: string, content: string): string {
+    const collapsed = settingsCollapseState[id] ?? false;
+    const arrow = collapsed ? '\u25B6' : '\u25BC';
+    const display = collapsed ? 'none' : 'flex';
+    return `<div class="settings-section" data-section="${id}">
+        <div class="settings-title" data-collapse="${id}">${arrow} ${title}</div>
+        <div class="settings-content" id="sc-${id}" style="display:${display}">
+            ${content}
+        </div>
+    </div>`;
+}
+
 function buildSettingsHtml(): string {
-    return `
-<div class="settings-header">
-    <span>Graph Settings</span>
-    <button id="settings-close" title="Close">\u2715</button>
-</div>
-<div class="settings-body">
-    <div class="settings-section">
-        <div class="settings-title">Edges</div>
+    const edgesContent = `
         <label class="settings-inline">Style
             <select id="s-edgeStyle">
                 <option value="tapered"${edgeStyle === 'tapered' ? ' selected' : ''}>Tapered</option>
@@ -1021,9 +1576,9 @@ function buildSettingsHtml(): string {
                 <option value="child-to-parent"${edgeDirection === 'child-to-parent' ? ' selected' : ''}>Childs to parents</option>
             </select>
         </label>
-    </div>
-    <div class="settings-section">
-        <div class="settings-title">Force Simulation</div>
+        ${sliderRow('taperedWidth', 'Tapered Width', 0.1, 5.0, 0.1, taperedWidthFactor, 2.0)}`;
+
+    const simContent = `
         ${sliderRow('repulsion', 'Repulsion', 500, 100000, 500, simRepulsion, SIM_DEFAULTS.repulsion)}
         ${sliderRow('attraction', 'Attraction', 0.0001, 0.1, 0.001, simAttraction, SIM_DEFAULTS.attraction)}
         ${sliderRow('gravity', 'Gravity', 0.001, 0.2, 0.001, simGravity, SIM_DEFAULTS.gravity)}
@@ -1031,16 +1586,25 @@ function buildSettingsHtml(): string {
         ${sliderRow('minDist', 'Min Distance', 20, 100000, 10, simMinDistance, SIM_DEFAULTS.minDistance)}
         ${sliderRow('steps', 'Steps/Frame', 1, 10, 1, simStepsPerFrame, SIM_DEFAULTS.stepsPerFrame)}
         ${sliderRow('threshold', 'Threshold', 0.001, 5, 0.001, simThreshold, SIM_DEFAULTS.threshold)}
-        ${sliderRow('damping', 'Damping', 0.5, 1.0, 0.01, simDamping, SIM_DEFAULTS.damping)}
+        ${sliderRow('damping', 'Damping', 0.5, 1.0, 0.01, simDamping, SIM_DEFAULTS.damping)}`;
+
+    const displayContent = `
+        <label class="settings-checkbox"><input type="checkbox" id="s-minimap"${minimapEnabled ? ' checked' : ''}> Show minimap</label>`;
+
+    const controlsContent = `
         <label class="settings-checkbox"><input type="checkbox" id="s-autoPause"${autoPauseDuringDrag ? ' checked' : ''}> Auto-pause sim during node drag</label>
-    </div>
-    <div class="settings-section">
-        <div class="settings-title">Controls</div>
         <button id="s-startstop" class="settings-btn">${simEnabled ? '\u23F8 Stop Simulation' : '\u25B6 Start Simulation'}</button>
         <button id="s-restart" class="settings-btn">\u21BA Restart Simulation</button>
         <button id="s-fitview" class="settings-btn">\u2922 Fit to View</button>
-        <button id="s-screenshot" class="settings-btn">\uD83D\uDCF7 Screenshot (PNG)</button>
-    </div>
+        <button id="s-screenshot" class="settings-btn">\uD83D\uDCF7 Screenshot (PNG)</button>`;
+
+    return `
+<div class="settings-body">
+    ${sectionHtml('display', 'Display', displayContent)}
+    ${sectionHtml('edges', 'Edges', edgesContent)}
+    ${buildNodeColorPickersHtml()}
+    ${sectionHtml('simulation', 'Force Simulation', simContent)}
+    ${sectionHtml('controls', 'Controls', controlsContent)}
 </div>`;
 }
 
@@ -1054,13 +1618,38 @@ function updateStartStopBtn(): void {
 function attachSettingsEvents(): void {
     if (!settingsPanel) { return; }
 
-    settingsPanel.querySelector('#settings-close')!.addEventListener('click', toggleSettings);
+    // Collapsible section toggle
+    settingsPanel.querySelectorAll('.settings-title[data-collapse]').forEach(el => {
+        el.addEventListener('click', () => {
+            const sectionId = (el as HTMLElement).dataset.collapse!;
+            const content = settingsPanel!.querySelector(`#sc-${sectionId}`) as HTMLElement | null;
+            if (!content) { return; }
+            const isCollapsed = content.style.display === 'none';
+            content.style.display = isCollapsed ? 'flex' : 'none';
+            settingsCollapseState[sectionId] = !isCollapsed;
+            (el as HTMLElement).textContent = (!isCollapsed ? '\u25B6' : '\u25BC') + ' ' + (el as HTMLElement).textContent!.substring(2);
+            vscode.postMessage({ type: 'updateSetting', key: 'graphSettingsCollapse', value: { ...settingsCollapseState } });
+        });
+    });
+
+    // Slider ID → workspace setting key mapping
+    const sliderSettingKeys: Record<string, string> = {
+        's-repulsion': 'graphSimRepulsion',
+        's-attraction': 'graphSimAttraction',
+        's-gravity': 'graphSimGravity',
+        's-linkLength': 'graphSimLinkLength',
+        's-minDist': 'graphSimMinDistance',
+        's-steps': 'graphSimStepsPerFrame',
+        's-threshold': 'graphSimThreshold',
+        's-damping': 'graphSimDamping',
+        's-taperedWidth': 'graphTaperedWidth',
+    };
 
     // Edge style
     const edgeSel = settingsPanel.querySelector('#s-edgeStyle') as HTMLSelectElement;
     edgeSel.addEventListener('change', () => {
         edgeStyle = edgeSel.value as typeof edgeStyle;
-        saveState();
+        vscode.postMessage({ type: 'updateSetting', key: 'graphEdgeStyle', value: edgeStyle });
         draw();
     });
 
@@ -1068,8 +1657,13 @@ function attachSettingsEvents(): void {
     const dirSel = settingsPanel.querySelector('#s-edgeDirection') as HTMLSelectElement;
     dirSel.addEventListener('change', () => {
         edgeDirection = dirSel.value as typeof edgeDirection;
-        // Save to VS Code workspace settings
-        vscode.postMessage({ type: 'updateSetting', key: 'graphEdgeDirection', value: edgeDirection });
+        const settingVal = edgeDirection === 'parent-to-child' ? 'inverse' : 'dependency';
+        vscode.postMessage({ type: 'updateSetting', key: 'graphEdgeDirection', value: settingVal });
+        // If in focus mode, rebuild subgraph with new direction
+        if (focusedNodeId) {
+            focusVisibleIds = buildConnectedSubgraph(focusedNodeId);
+        }
+        restartSimIfEnabled();
         draw();
     });
 
@@ -1077,6 +1671,15 @@ function attachSettingsEvents(): void {
     const autoPauseCheck = settingsPanel.querySelector('#s-autoPause') as HTMLInputElement;
     autoPauseCheck.addEventListener('change', () => {
         autoPauseDuringDrag = autoPauseCheck.checked;
+        vscode.postMessage({ type: 'updateSetting', key: 'graphAutoPauseDrag', value: autoPauseDuringDrag });
+    });
+
+    // Minimap checkbox
+    const minimapCheck = settingsPanel.querySelector('#s-minimap') as HTMLInputElement;
+    minimapCheck.addEventListener('change', () => {
+        minimapEnabled = minimapCheck.checked;
+        vscode.postMessage({ type: 'updateSetting', key: 'graphMinimap', value: minimapEnabled });
+        draw();
     });
 
     // Sliders
@@ -1089,17 +1692,22 @@ function attachSettingsEvents(): void {
         ['s-steps', 'v-steps', v => { simStepsPerFrame = Math.round(v); }],
         ['s-threshold', 'v-threshold', v => { simThreshold = v; }],
         ['s-damping', 'v-damping', v => { simDamping = v; }],
+        ['s-taperedWidth', 'v-taperedWidth', v => { taperedWidthFactor = v; }],
     ];
 
     for (const [sliderId, valueId, setter] of sliders) {
-        const slider = settingsPanel.querySelector(`#${sliderId}`) as HTMLInputElement;
-        const valueSpan = settingsPanel.querySelector(`#${valueId}`) as HTMLSpanElement;
+        const slider = settingsPanel.querySelector(`#${sliderId}`) as HTMLInputElement | null;
+        const valueSpan = settingsPanel.querySelector(`#${valueId}`) as HTMLSpanElement | null;
+        if (!slider || !valueSpan) { continue; }
         slider.addEventListener('input', () => {
             const v = parseFloat(slider.value);
             setter(v);
             valueSpan.textContent = String(v);
-            saveState();
-            startSimulation(); // respects simEnabled
+            const settingKey = sliderSettingKeys[sliderId];
+            if (settingKey) {
+                vscode.postMessage({ type: 'updateSetting', key: settingKey, value: v });
+            }
+            startSimulation();
         });
     }
 
@@ -1114,10 +1722,35 @@ function attachSettingsEvents(): void {
             valueSpan.textContent = String(def);
             const match = sliders.find(s => s[0] === `s-${id}`);
             if (match) { match[2](def); }
-            saveState();
+            const settingKey = sliderSettingKeys[`s-${id}`];
+            if (settingKey) {
+                vscode.postMessage({ type: 'updateSetting', key: settingKey, value: def });
+            }
             startSimulation();
         });
     });
+
+    // Node color pickers
+    const presentTypes = new Set(allNodes.map(n => n.type));
+    for (const type of presentTypes) {
+        const picker = settingsPanel?.querySelector(`#s-color-${type}`) as HTMLInputElement | null;
+        if (!picker) { continue; }
+        picker.addEventListener('input', () => {
+            const newColor = picker.value;
+            for (const n of allNodes) {
+                if (n.type === type) { n.color = newColor; }
+            }
+            draw();
+            buildFilterCheckboxes();
+            // Persist all node colors as an object
+            const colorMap: Record<string, string> = {};
+            for (const t of presentTypes) {
+                const node = allNodes.find(n => n.type === t);
+                if (node) { colorMap[t] = node.color; }
+            }
+            vscode.postMessage({ type: 'updateSetting', key: 'graphNodeColors', value: colorMap });
+        });
+    }
 
     // Start/Stop simulation
     const startStopBtn = settingsPanel.querySelector('#s-startstop') as HTMLButtonElement;
@@ -1132,6 +1765,7 @@ function attachSettingsEvents(): void {
             startSimulation();
         }
         updateStartStopBtn();
+        vscode.postMessage({ type: 'updateSetting', key: 'graphSimEnabled', value: simEnabled });
     });
 
     // Restart simulation (reset positions)
@@ -1139,6 +1773,7 @@ function attachSettingsEvents(): void {
         simEnabled = true;
         resetLayoutPositions();
         updateStartStopBtn();
+        vscode.postMessage({ type: 'updateSetting', key: 'graphSimEnabled', value: simEnabled });
     });
 
     // Fit to View
@@ -1161,14 +1796,38 @@ function takeScreenshot(): void {
 }
 
 // ------------------------------------------------------------
+// Apply settings received from the provider (workspace settings)
+// ------------------------------------------------------------
+function applySettingsFromProvider(s: any): void {
+    if (s.edgeDirection !== undefined) {
+        edgeDirection = s.edgeDirection === 'inverse' ? 'parent-to-child' : 'child-to-parent';
+    }
+    if (s.edgeStyle !== undefined) { edgeStyle = s.edgeStyle as typeof edgeStyle; }
+    if (s.taperedWidth !== undefined) { taperedWidthFactor = s.taperedWidth; }
+    if (s.simRepulsion !== undefined) { simRepulsion = s.simRepulsion; }
+    if (s.simAttraction !== undefined) { simAttraction = s.simAttraction; }
+    if (s.simGravity !== undefined) { simGravity = s.simGravity; }
+    if (s.simLinkLength !== undefined) { simLinkLength = s.simLinkLength; }
+    if (s.simMinDistance !== undefined) { simMinDistance = s.simMinDistance; }
+    if (s.simStepsPerFrame !== undefined) { simStepsPerFrame = s.simStepsPerFrame; }
+    if (s.simThreshold !== undefined) { simThreshold = s.simThreshold; }
+    if (s.simDamping !== undefined) { simDamping = s.simDamping; }
+    if (s.minimap !== undefined) { minimapEnabled = s.minimap; }
+    if (s.autoPauseDrag !== undefined) { autoPauseDuringDrag = s.autoPauseDrag; }
+    if (s.simEnabled !== undefined) { simEnabled = s.simEnabled; }
+    if (s.settingsCollapse !== undefined) { settingsCollapseState = s.settingsCollapse; }
+    if (s.settingsVisible !== undefined) { settingsPanelVisible = s.settingsVisible; }
+}
+
+// ------------------------------------------------------------
 // Message listener
 // ------------------------------------------------------------
 window.addEventListener('message', (event: MessageEvent) => {
     const msg = event.data;
     switch (msg.type) {
         case 'update': {
-            if (msg.edgeDirection) {
-                edgeDirection = msg.edgeDirection as typeof edgeDirection;
+            if (msg.settings) {
+                applySettingsFromProvider(msg.settings);
             }
             createGraph(msg.nodes as GraphNode[], msg.edges as GraphEdge[]);
             break;
@@ -1183,6 +1842,9 @@ window.addEventListener('message', (event: MessageEvent) => {
             // Reset velocities and restart
             for (const ln of layoutNodes) { ln.vx = 0; ln.vy = 0; }
             startSimulation();
+            break;
+        case 'focusNode':
+            focusOnNode(msg.targetId as string);
             break;
     }
 });

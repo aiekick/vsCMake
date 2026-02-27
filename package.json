@@ -66,6 +66,81 @@
           ],
           "default": "dependency",
           "description": "Edge arrow direction: toward dependency or inverse"
+        },
+        "vsCMake.graphEdgeStyle": {
+          "type": "string",
+          "enum": ["tapered", "chevrons", "line"],
+          "default": "tapered",
+          "description": "Edge rendering style in the dependency graph"
+        },
+        "vsCMake.graphTaperedWidth": {
+          "type": "number",
+          "default": 1.0,
+          "minimum": 0.1,
+          "maximum": 5.0,
+          "description": "Width multiplier for tapered edges"
+        },
+        "vsCMake.graphNodeColors": {
+          "type": "object",
+          "default": {},
+          "description": "Custom node colors by target type (e.g. {\"EXECUTABLE\": \"#FF0000\"})"
+        },
+        "vsCMake.graphSimRepulsion": {
+          "type": "number",
+          "default": 50000
+        },
+        "vsCMake.graphSimAttraction": {
+          "type": "number",
+          "default": 0.1
+        },
+        "vsCMake.graphSimGravity": {
+          "type": "number",
+          "default": 0.001
+        },
+        "vsCMake.graphSimLinkLength": {
+          "type": "number",
+          "default": 0.1
+        },
+        "vsCMake.graphSimMinDistance": {
+          "type": "number",
+          "default": 5000
+        },
+        "vsCMake.graphSimStepsPerFrame": {
+          "type": "integer",
+          "default": 5
+        },
+        "vsCMake.graphSimThreshold": {
+          "type": "number",
+          "default": 0.1
+        },
+        "vsCMake.graphSimDamping": {
+          "type": "number",
+          "default": 0.85
+        },
+        "vsCMake.graphMinimap": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show minimap on the dependency graph"
+        },
+        "vsCMake.graphAutoPauseDrag": {
+          "type": "boolean",
+          "default": false,
+          "description": "Auto-pause simulation during node drag"
+        },
+        "vsCMake.graphSimEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable force simulation on the dependency graph"
+        },
+        "vsCMake.graphSettingsCollapse": {
+          "type": "object",
+          "default": { "edges": false, "colors": true, "simulation": true, "display": false, "controls": false },
+          "description": "Collapsed state of settings sections (true = collapsed)"
+        },
+        "vsCMake.graphSettingsVisible": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether the settings panel is open"
         }
       }
     },

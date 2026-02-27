@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
 import { Target, TargetType } from '../cmake/types';
 
 // ------------------------------------------------------------
@@ -115,6 +114,17 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
     // ---- Data conversion ----
 
     private sendGraphData(): void {
+        const config = vscode.workspace.getConfiguration('vsCMake');
+
+        // Merge custom colors onto defaults
+        const customColors = config.get<Record<string, string>>('graphNodeColors', {});
+        const effectiveColors: Record<string, string> = { ...TARGET_COLORS };
+        for (const [type, color] of Object.entries(customColors)) {
+            if (color && type in effectiveColors) {
+                effectiveColors[type as keyof typeof effectiveColors] = color;
+            }
+        }
+
         const filtered = this.targets.filter(t => t.type !== 'UTILITY');
         const validIds = new Set(filtered.map(t => t.id));
 
@@ -122,7 +132,7 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
             id: t.id,
             label: t.name,
             type: t.type,
-            color: TARGET_COLORS[t.type],
+            color: effectiveColors[t.type] ?? TARGET_COLORS[t.type],
             shape: TARGET_SHAPES[t.type],
             sourcePath: t.paths.source,
         }));
@@ -133,8 +143,26 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
                 .map(id => ({ from: t.id, to: id })),
         );
 
-        const edgeDirection = vscode.workspace.getConfiguration('vsCMake').get<string>('graphEdgeDirection', 'dependency');
-        this.view?.webview.postMessage({ type: 'update', nodes, edges, edgeDirection });
+        const settings = {
+            edgeDirection: config.get<string>('graphEdgeDirection', 'dependency'),
+            edgeStyle: config.get<string>('graphEdgeStyle', 'tapered'),
+            taperedWidth: config.get<number>('graphTaperedWidth', 1.0),
+            simRepulsion: config.get<number>('graphSimRepulsion', 50000),
+            simAttraction: config.get<number>('graphSimAttraction', 0.1),
+            simGravity: config.get<number>('graphSimGravity', 0.001),
+            simLinkLength: config.get<number>('graphSimLinkLength', 0.1),
+            simMinDistance: config.get<number>('graphSimMinDistance', 5000),
+            simStepsPerFrame: config.get<number>('graphSimStepsPerFrame', 5),
+            simThreshold: config.get<number>('graphSimThreshold', 0.1),
+            simDamping: config.get<number>('graphSimDamping', 0.85),
+            minimap: config.get<boolean>('graphMinimap', true),
+            autoPauseDrag: config.get<boolean>('graphAutoPauseDrag', false),
+            simEnabled: config.get<boolean>('graphSimEnabled', true),
+            settingsCollapse: config.get<Record<string, boolean>>('graphSettingsCollapse', { edges: false, colors: true, simulation: true, display: false, controls: false }),
+            settingsVisible: config.get<boolean>('graphSettingsVisible', false),
+        };
+
+        this.view?.webview.postMessage({ type: 'update', nodes, edges, settings });
     }
 
     // ---- Message handling ----
@@ -154,14 +182,6 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
                 break;
             }
 
-            case 'nodeDoubleClick': {
-                const target = this.targets.find(t => t.id === msg.targetId);
-                if (target) {
-                    this.openTargetDefinition(target);
-                }
-                break;
-            }
-
             case 'saveScreenshot': {
                 this.saveScreenshot(msg.dataUri as string);
                 break;
@@ -177,8 +197,12 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
     }
 
     private async saveScreenshot(dataUri: string): Promise<void> {
+        const workspaceName = vscode.workspace.name ?? 'project';
+        const now = new Date();
+        const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
+        const defaultName = `${workspaceName}_dependency_graph_${timestamp}.png`;
         const uri = await vscode.window.showSaveDialog({
-            defaultUri: vscode.Uri.file('dependency_graph.png'),
+            defaultUri: vscode.Uri.file(defaultName),
             filters: { 'PNG Image': ['png'] },
         });
         if (!uri) { return; }
@@ -186,18 +210,6 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
         const buffer = Buffer.from(base64, 'base64');
         await vscode.workspace.fs.writeFile(uri, buffer);
         vscode.window.showInformationMessage(`Screenshot saved to ${uri.fsPath}`);
-    }
-
-    private openTargetDefinition(target: Target): void {
-        const graph = target.backtraceGraph;
-        if (!graph || target.backtrace === undefined) { return; }
-        const node = graph.nodes[target.backtrace];
-        if (!node) { return; }
-        const file = graph.files[node.file];
-        if (!file) { return; }
-        const isAbs = /^([a-zA-Z]:[\\/]|\/)/.test(file);
-        const absFile = isAbs ? file : path.join(target.paths.source, file);
-        vscode.commands.executeCommand('vsCMake.openLocation', absFile, node.line ?? 1);
     }
 
     // ---- HTML ----
@@ -228,9 +240,10 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
     <div id="toolbar">
         <div id="filters"></div>
     </div>
+    <div id="breadcrumb-bar"></div>
     <div id="graph-container" style="display:none"></div>
     <div id="empty-message">Waiting for CMake data\u2026</div>
-    <div id="legend"></div>
+    <div id="footer"></div>
     <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;
