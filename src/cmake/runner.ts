@@ -2,7 +2,7 @@ import { spawn, ChildProcess } from 'child_process';
 import * as vscode from 'vscode';
 import * as os from 'os';
 import { isWindows, isClInPath, captureVcvarsEnv, findDefaultVcvarsall } from './msvc_env';
-import { CMakeDiagnosticsManager } from './cmake_diagnostics_manager';
+import { CMakeDiagnosticsManager } from './diagnostics_manager';
 
 // ------------------------------------------------------------
 // Types

@@ -60,19 +60,22 @@ body {
 }
 
 .breadcrumb-item {
-    color: var(--vscode-textLink-foreground);
+    color: var(--vscode-editor-foreground);
     cursor: pointer;
     padding: 1px 3px;
+    background-color: var(--vscode-input-background);
     border-radius: 2px;
 }
+
 .breadcrumb-item:hover {
     background: var(--vscode-toolbar-hoverBackground);
-    text-decoration: underline;
 }
+
 .breadcrumb-separator {
     color: var(--vscode-descriptionForeground);
     margin: 0 2px;
 }
+
 .breadcrumb-current {
     color: var(--vscode-editor-foreground);
     font-weight: bold;
@@ -98,9 +101,11 @@ body {
     width: 140px;
     outline: none;
 }
+
 #search-input:focus {
     border-color: var(--vscode-focusBorder);
 }
+
 #search-input::placeholder {
     color: var(--vscode-input-placeholderForeground);
 }
@@ -120,6 +125,7 @@ body {
     min-width: 20px;
     text-align: center;
 }
+
 #search-mode:hover,
 #search-filter-mode:hover,
 #search-clear:hover {
@@ -224,6 +230,7 @@ body {
     padding: 2px 4px;
     border-radius: 2px;
 }
+
 .settings-header button:hover {
     background: var(--vscode-toolbar-hoverBackground);
 }
@@ -280,7 +287,7 @@ body {
     gap: 2px;
 }
 
-.settings-row > label {
+.settings-row>label {
     font-size: 11px;
     white-space: nowrap;
 }
@@ -314,6 +321,7 @@ body {
     border-radius: 2px;
     line-height: 18px;
 }
+
 .settings-reset-btn:hover {
     background: var(--vscode-toolbar-hoverBackground);
     color: var(--vscode-editor-foreground);
@@ -365,6 +373,7 @@ body {
     font-size: 11px;
     border-radius: 2px;
 }
+
 .settings-btn:hover {
     background: var(--vscode-button-hoverBackground);
 }

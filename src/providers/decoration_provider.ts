@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { CMakeDiagnosticsManager, CMakeDiagnosticSeverity } from '../cmake/cmake_diagnostics_manager';
+import { CMakeDiagnosticsManager, CMakeDiagnosticSeverity } from '../cmake/diagnostics_manager';
 
 /**
  * Provides file decorations (colored labels) for files and folders

@@ -1,3 +1,5 @@
+import { GraphEdgeDirection } from '../cmake/types';
+
 // ------------------------------------------------------------
 // VS Code API
 // ------------------------------------------------------------
@@ -44,7 +46,7 @@ let layout_nodes: LayoutNode[] = [];
 let active_filters = new Set<string>();
 let selected_node_id: string | null = null;
 let edge_style: 'tapered' | 'chevrons' | 'line' = 'tapered';
-let edge_direction: 'parent-to-child' | 'child-to-parent' = 'child-to-parent';
+let edge_direction: GraphEdgeDirection = GraphEdgeDirection.TARGETS_USED_BY; // default to "targets used by" which is more intuitive for most users
 let sim_enabled = true;       // user toggle: allows/prevents sim from running
 let auto_pause_during_drag = false;
 let search_filter = '';
@@ -96,27 +98,22 @@ let first_layout = true;
 // ------------------------------------------------------------
 // Force simulation parameters (defaults)
 // ------------------------------------------------------------
+
 const SIM_DEFAULTS: Record<string, number> = {
-    repulsion: 10000,
-    attraction: 0.1,
-    gravity: 0.001,
+    repulsion: 50000, // node repulsion strength: higher = stronger push away
+    attraction: 0.1, // edge attraction strength: higher = stronger pull together
+    gravity: 0.001, // gravity strength: higher = stronger pull towards center, prevents drifting apart
     linkLength: 0.05, // ideal link length smaller = stronger spring
-    minDistance: 5000,
-    stepsPerFrame: 5,
-    threshold: 5,
-    damping: 0.85,
+    minDistance: 50, // minimum distance for repulsion to avoid extreme forces at close range
+    stepsPerFrame: 5, // how many simulation steps to run per animation frame, higher = faster convergence but more CPU usage
+    threshold: 2, // when to stop the simulation: if max node movement is below this, we consider it "converged" and stop until next interaction
+    damping: 0.85, // velocity damping factor: between 0 and 1, higher = quicker stop but can cause jitter, lower = longer settling time but smoother
 };
 
-let sim_repulsion = SIM_DEFAULTS.repulsion;
-let sim_attraction = SIM_DEFAULTS.attraction;
-let sim_gravity = SIM_DEFAULTS.gravity;
-let sim_link_length = SIM_DEFAULTS.linkLength;
-let sim_min_distance = SIM_DEFAULTS.minDistance;
-let sim_steps_per_frame = SIM_DEFAULTS.stepsPerFrame;
-let sim_threshold = SIM_DEFAULTS.threshold;
-let sim_damping = SIM_DEFAULTS.damping;
-let sim_running = false;
-let sim_anim_frame: number | null = null;
+let sim_vars: Record<string, number> = SIM_DEFAULTS; // current sim parameters, can be tweaked by user
+
+let sim_running = false; // whether the simulation loop is currently running (can be paused by user)
+let sim_anim_frame: number | null = null; // current animation frame id for simulation loop, used to cancel when needed
 
 // ------------------------------------------------------------
 // State persistence (camera only, survives webview refresh)
@@ -302,7 +299,7 @@ function drawEdges(aW: number, aH: number): void {
             // The wide end (base) is at sx1,sy1 and the tip at sx2,sy2
             let sx1 = x1, sy1 = y1, sx2 = x2, sy2 = y2;
             let base_node = from_ln;
-            if (edge_direction === 'child-to-parent') {
+            if (edge_direction === GraphEdgeDirection.TARGETS_USED_BY) {
                 sx1 = x2; sy1 = y2; sx2 = x1; sy2 = y1;
                 base_node = to_ln;
             }
@@ -325,7 +322,7 @@ function drawEdgeStyled(
 ): void {
     // Swap direction if inverted
     let sx1 = aX1, sy1 = aY1, sx2 = aX2, sy2 = aY2;
-    if (edge_direction === 'child-to-parent') {
+    if (edge_direction === GraphEdgeDirection.TARGETS_USED_BY) {
         sx1 = aX2; sy1 = aY2; sx2 = aX1; sy2 = aY1;
     }
     switch (edge_style) {
@@ -910,7 +907,7 @@ function stopSimulation(): void {
 function simulationStep(): void {
     if (!sim_running) { return; }
 
-    for (let step = 0; step < sim_steps_per_frame; step++) {
+    for (let step = 0; step < sim_vars.stepsPerFrame; step++) {
         let total_movement = 0;
 
         // Build index
@@ -922,20 +919,26 @@ function simulationStep(): void {
         const fy = new Float64Array(n);
 
         // Build adjacency set and degree count for connectivity-aware repulsion
-        const adjacency = new Map<string, Set<string>>();
-        const degree = new Map<string, number>();
+        // This allows us to apply stronger repulsion between unconnected nodes, 
+        // especially high-degree ones, to reduce clutter around hubs and improve overall layout clarity
+        const adjacency = new Map<string, Set<string>>(); // node id -> set of adjacent node ids
+        const degree = new Map<string, number>();// node id -> degree (number of connections)
         for (const edge of all_edges) {
+            // Ensure both nodes are in the adjacency map
             if (!adjacency.has(edge.from)) { adjacency.set(edge.from, new Set()); }
+            // Ensure both nodes are in the adjacency map
             if (!adjacency.has(edge.to)) { adjacency.set(edge.to, new Set()); }
             adjacency.get(edge.from)!.add(edge.to);
             adjacency.get(edge.to)!.add(edge.from);
         }
+        // Compute degree for each node
         for (let i = 0; i < n; i++) {
             degree.set(layout_nodes[i].node.id, adjacency.get(layout_nodes[i].node.id)?.size ?? 0);
         }
 
         // Repulsion between all pairs (Coulomb) -- stronger for unconnected high-degree nodes
         for (let i = 0; i < n; i++) {
+            // Skip filtered nodes
             if (isNodeFiltered(layout_nodes[i].node)) { continue; }
             const id_i = layout_nodes[i].node.id;
             const deg_i = degree.get(id_i) ?? 0;
@@ -943,22 +946,23 @@ function simulationStep(): void {
             for (let j = i + 1; j < n; j++) {
                 if (isNodeFiltered(layout_nodes[j].node)) { continue; }
                 const id_j = layout_nodes[j].node.id;
+                // Check if nodes are directly connected
                 const connected = adj_i !== undefined && adj_i.has(id_j);
                 let dx = layout_nodes[j].x - layout_nodes[i].x;
                 let dy = layout_nodes[j].y - layout_nodes[i].y;
                 const dist_sq = dx * dx + dy * dy;
                 let dist = Math.sqrt(dist_sq);
-                // Avoid division by zero: jitter overlapping nodes
+                // Avoid division by zero
                 if (dist < 0.1) {
                     dx = (Math.random() - 0.5) * 2;
                     dy = (Math.random() - 0.5) * 2;
                     dist = 1;
                 }
                 // Standard repulsion
-                let force = sim_repulsion / (dist * dist);
+                let force = sim_vars.repulsion / (dist * dist);
                 // Extra push when closer than minDistance
-                if (dist < sim_min_distance) {
-                    force *= (sim_min_distance / dist);
+                if (dist < sim_vars.minDistance) {
+                    force *= (sim_vars.minDistance / dist);
                 }
                 // Boost repulsion for unconnected nodes based on their degree
                 // High-degree nodes push harder to reduce clutter around hubs
@@ -987,13 +991,10 @@ function simulationStep(): void {
             const dy = layout_nodes[ti].y - layout_nodes[fi].y;
             const dist = Math.sqrt(dx * dx + dy * dy);
             if (dist < 1) { continue; }
-
             // linear spring: F = k * x
-            //const force = sim_attraction * dist;
-
+            //const force = sim_vars.attraction * dist;
             // Logarithmic spring: strong pull when far, weaker when close
-            const force = sim_attraction * Math.log(1 + dist) / sim_link_length;
-
+            const force = sim_vars.attraction * Math.log(2 + dist) / sim_vars.linkLength;
             const force_x = (dx / dist) * force;
             const force_y = (dy / dist) * force;
             fx[fi] += force_x;
@@ -1009,7 +1010,7 @@ function simulationStep(): void {
             const py = layout_nodes[i].y;
             const dist = Math.sqrt(px * px + py * py);
             if (dist < 1) { continue; }
-            const force_dist = sim_gravity; // * Math.pow(dist, 0.25) ;
+            const force_dist = sim_vars.gravity; // * Math.pow(dist, 0.25) ;
             fx[i] -= px * force_dist;
             fy[i] -= py * force_dist;
         }
@@ -1024,8 +1025,8 @@ function simulationStep(): void {
             if (focused_node_id && layout_nodes[i].node.id === focused_node_id) { continue; }
 
             const ln = layout_nodes[i];
-            ln.vx = (ln.vx + fx[i]) * sim_damping;
-            ln.vy = (ln.vy + fy[i]) * sim_damping;
+            ln.vx = (ln.vx + fx[i]) * sim_vars.damping;
+            ln.vy = (ln.vy + fy[i]) * sim_vars.damping;
 
             // Clamp speed
             const speed = Math.sqrt(ln.vx * ln.vx + ln.vy * ln.vy);
@@ -1040,7 +1041,7 @@ function simulationStep(): void {
         }
 
         // Check equilibrium
-        if (total_movement < sim_threshold) {
+        if (total_movement < sim_vars.threshold) {
             stopSimulation();
             draw();
             return;
@@ -1358,7 +1359,7 @@ function sliderRow(aId: string, aLabel: string, aMin: number, aMax: number, aSte
         <div class="settings-slider-row">
             <input type="range" id="s-${aId}" min="${aMin}" max="${aMax}" step="${aStep}" value="${aValue}">
             <span id="v-${aId}">${aValue}</span>
-            <button class="settings-reset-btn" data-reset="${aId}" data-default="${aDefaultVal}" title="Reset to ${aDefaultVal}">\u21BA</button>
+            <button class="settings-reset-btn" data-reset="${aId}" data-default="${aDefaultVal}" title="Reset to default value">\u21BA</button>
         </div>
     </div>`;
 }
@@ -1406,7 +1407,7 @@ function buildConnectedSubgraph(aRootId: string): Set<string> {
     // Build directed adjacency based on current edge direction
     const adj = new Map<string, string[]>();
     for (const edge of all_edges) {
-        if (edge_direction === 'child-to-parent') {
+        if (edge_direction === GraphEdgeDirection.TARGETS_USED_BY) {
             // Follow from -> to (dependencies)
             if (!adj.has(edge.from)) { adj.set(edge.from, []); }
             adj.get(edge.from)!.push(edge.to);
@@ -1578,21 +1579,21 @@ function buildSettingsHtml(): string {
         </label>
         <label class="settings-inline">Direction
             <select id="s-edgeDirection">
-                <option value="parent-to-child"${edge_direction === 'parent-to-child' ? ' selected' : ''}>Parents to childs</option>
-                <option value="child-to-parent"${edge_direction === 'child-to-parent' ? ' selected' : ''}>Childs to parents</option>
+                <option value="parent-to-child"${edge_direction === GraphEdgeDirection.USED_BY_TARGETS ? ' selected' : ''}>Used by targets</option>
+                <option value="child-to-parent"${edge_direction === GraphEdgeDirection.TARGETS_USED_BY ? ' selected' : ''}>Targets used by</option>
             </select>
         </label>
         ${sliderRow('taperedWidth', 'Tapered Width', 0.1, 5.0, 0.1, tapered_width_factor, 2.0)}`;
 
     const sim_content = `
-        ${sliderRow('repulsion', 'Repulsion', 500, 100000, 500, sim_repulsion, SIM_DEFAULTS.repulsion)}
-        ${sliderRow('attraction', 'Attraction', 0.0001, 0.1, 0.001, sim_attraction, SIM_DEFAULTS.attraction)}
-        ${sliderRow('gravity', 'Gravity', 0.001, 0.2, 0.001, sim_gravity, SIM_DEFAULTS.gravity)}
-        ${sliderRow('linkLength', 'Link Length', 0.001, 1.0, 0.001, sim_link_length, SIM_DEFAULTS.linkLength)}
-        ${sliderRow('minDist', 'Min Distance', 20, 100000, 10, sim_min_distance, SIM_DEFAULTS.minDistance)}
-        ${sliderRow('steps', 'Steps/Frame', 1, 10, 1, sim_steps_per_frame, SIM_DEFAULTS.stepsPerFrame)}
-        ${sliderRow('threshold', 'Threshold', 0.001, 5, 0.001, sim_threshold, SIM_DEFAULTS.threshold)}
-        ${sliderRow('damping', 'Damping', 0.5, 1.0, 0.01, sim_damping, SIM_DEFAULTS.damping)}`;
+        ${sliderRow('repulsion', 'Repulsion', 500, 100000, 500, sim_vars.repulsion, SIM_DEFAULTS.repulsion)}
+        ${sliderRow('attraction', 'Attraction', 0.0001, 0.1, 0.001, sim_vars.attraction, SIM_DEFAULTS.attraction)}
+        ${sliderRow('gravity', 'Gravity', 0.001, 0.2, 0.001, sim_vars.gravity, SIM_DEFAULTS.gravity)}
+        ${sliderRow('linkLength', 'Link Length', 0.001, 1.0, 0.001, sim_vars.linkLength, SIM_DEFAULTS.linkLength)}
+        ${sliderRow('minDist', 'Min Distance', 20, 10000, 10, sim_vars.minDistance, SIM_DEFAULTS.minDistance)}
+        ${sliderRow('steps', 'Steps/Frame', 1, 10, 1, sim_vars.stepsPerFrame, SIM_DEFAULTS.stepsPerFrame)}
+        ${sliderRow('threshold', 'Threshold', 0.001, 5, 0.001, sim_vars.threshold, SIM_DEFAULTS.threshold)}
+        ${sliderRow('damping', 'Damping', 0.5, 1.0, 0.01, sim_vars.damping, SIM_DEFAULTS.damping)}`;
 
     const display_content = `
         <label class="settings-checkbox"><input type="checkbox" id="s-minimap"${minimap_enabled ? ' checked' : ''}> Show minimap</label>`;
@@ -1663,7 +1664,7 @@ function attachSettingsEvents(): void {
     const dir_sel = settings_panel.querySelector('#s-edgeDirection') as HTMLSelectElement;
     dir_sel.addEventListener('change', () => {
         edge_direction = dir_sel.value as typeof edge_direction;
-        const setting_val = edge_direction === 'parent-to-child' ? 'inverse' : 'dependency';
+        const setting_val = edge_direction === GraphEdgeDirection.USED_BY_TARGETS ? 'inverse' : 'dependency';
         vscode.postMessage({ type: 'updateSetting', key: 'graphEdgeDirection', value: setting_val });
         // If in focus mode, rebuild subgraph with new direction
         if (focused_node_id) {
@@ -1690,15 +1691,15 @@ function attachSettingsEvents(): void {
 
     // Sliders
     const sliders: [string, string, (aV: number) => void][] = [
-        ['s-repulsion', 'v-repulsion', aV => { sim_repulsion = aV; }],
-        ['s-attraction', 'v-attraction', aV => { sim_attraction = aV; }],
-        ['s-gravity', 'v-gravity', aV => { sim_gravity = aV; }],
-        ['s-linkLength', 'v-linkLength', aV => { sim_link_length = aV; }],
-        ['s-minDist', 'v-minDist', aV => { sim_min_distance = aV; }],
-        ['s-steps', 'v-steps', aV => { sim_steps_per_frame = Math.round(aV); }],
-        ['s-threshold', 'v-threshold', aV => { sim_threshold = aV; }],
-        ['s-damping', 'v-damping', aV => { sim_damping = aV; }],
-        ['s-taperedWidth', 'v-taperedWidth', aV => { tapered_width_factor = aV; }],
+        ['s-repulsion', 'v-repulsion', aV => { sim_vars.repulsion = aV; }],
+        ['s-attraction', 'v-attraction', aV => { sim_vars.attraction = aV; }],
+        ['s-gravity', 'v-gravity', aV => { sim_vars.gravity = aV; }],
+        ['s-linkLength', 'v-linkLength', aV => { sim_vars.linkLength = aV; }],
+        ['s-minDist', 'v-minDist', aV => { sim_vars.minDistance = aV; }],
+        ['s-steps', 'v-steps', aV => { sim_vars.stepsPerFrame = Math.round(aV); }],
+        ['s-threshold', 'v-threshold', aV => { sim_vars.threshold = aV; }],
+        ['s-damping', 'v-damping', aV => { sim_vars.damping = aV; }],
+        ['s-taperedWidth', 'v-taperedWidth', aV => { sim_vars.taperedWidth = aV; }],
     ];
 
     for (const [slider_id, value_id, setter] of sliders) {
@@ -1806,18 +1807,18 @@ function takeScreenshot(): void {
 // ------------------------------------------------------------
 function applySettingsFromProvider(aS: any): void {
     if (aS.edgeDirection !== undefined) {
-        edge_direction = aS.edgeDirection === 'inverse' ? 'parent-to-child' : 'child-to-parent';
+        edge_direction = aS.edgeDirection === 'inverse' ? GraphEdgeDirection.USED_BY_TARGETS : GraphEdgeDirection.TARGETS_USED_BY;
     }
     if (aS.edgeStyle !== undefined) { edge_style = aS.edgeStyle as typeof edge_style; }
-    if (aS.taperedWidth !== undefined) { tapered_width_factor = aS.taperedWidth; }
-    if (aS.simRepulsion !== undefined) { sim_repulsion = aS.simRepulsion; }
-    if (aS.simAttraction !== undefined) { sim_attraction = aS.simAttraction; }
-    if (aS.simGravity !== undefined) { sim_gravity = aS.simGravity; }
-    if (aS.simLinkLength !== undefined) { sim_link_length = aS.simLinkLength; }
-    if (aS.simMinDistance !== undefined) { sim_min_distance = aS.simMinDistance; }
-    if (aS.simStepsPerFrame !== undefined) { sim_steps_per_frame = aS.simStepsPerFrame; }
-    if (aS.simThreshold !== undefined) { sim_threshold = aS.simThreshold; }
-    if (aS.simDamping !== undefined) { sim_damping = aS.simDamping; }
+    if (aS.taperedWidth !== undefined) { sim_vars.taperedWidth = aS.taperedWidth; }
+    if (aS.simRepulsion !== undefined) { sim_vars.repulsion = aS.simRepulsion; }
+    if (aS.simAttraction !== undefined) { sim_vars.attraction = aS.simAttraction; }
+    if (aS.simGravity !== undefined) { sim_vars.gravity = aS.simGravity; }
+    if (aS.simLinkLength !== undefined) { sim_vars.linkLength = aS.simLinkLength; }
+    if (aS.simMinDistance !== undefined) { sim_vars.minDistance = aS.simMinDistance; }
+    if (aS.simStepsPerFrame !== undefined) { sim_vars.stepsPerFrame = aS.simStepsPerFrame; }
+    if (aS.simThreshold !== undefined) { sim_vars.threshold = aS.simThreshold; }
+    if (aS.simDamping !== undefined) { sim_vars.damping = aS.simDamping; }
     if (aS.minimap !== undefined) { minimap_enabled = aS.minimap; }
     if (aS.autoPauseDrag !== undefined) { auto_pause_during_drag = aS.autoPauseDrag; }
     if (aS.simEnabled !== undefined) { sim_enabled = aS.simEnabled; }

@@ -144,15 +144,15 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
         );
 
         const settings = {
-            edgeDirection: config.get<string>('graphEdgeDirection', 'dependency'),
+            edgeDirection: config.get<GraphEdgeDirection>('graphEdgeDirection', GraphEdgeDirection.TARGETS_USED_BY),
             edgeStyle: config.get<string>('graphEdgeStyle', 'tapered'),
             taperedWidth: config.get<number>('graphTaperedWidth', 1.0),
-            simRepulsion: config.get<number>('graphSimRepulsion', 50000),
+            simRepulsion: config.get<number>('graphSimRepulsion', 10000),
             simAttraction: config.get<number>('graphSimAttraction', 0.1),
             simGravity: config.get<number>('graphSimGravity', 0.001),
             simLinkLength: config.get<number>('graphSimLinkLength', 0.1),
-            simMinDistance: config.get<number>('graphSimMinDistance', 5000),
-            simStepsPerFrame: config.get<number>('graphSimStepsPerFrame', 5),
+            simMinDistance: config.get<number>('graphSimMinDistance', 50),
+            simStepsPerFrame: config.get<number>('graphSimStepsPerFrame', 2),
             simThreshold: config.get<number>('graphSimThreshold', 0.1),
             simDamping: config.get<number>('graphSimDamping', 0.85),
             minimap: config.get<boolean>('graphMinimap', true),
