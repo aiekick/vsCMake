@@ -33,45 +33,45 @@ interface RunOptions {
 export class Runner {
     private static readonly MSVC_STATE_KEY = 'CMakeGraph.msvcEnvCache';
 
-    private channel: vscode.OutputChannel;
-    private tasks = new Map<number, RunningTask>();
-    private nextId = 1;
-    private msvcEnv: Record<string, string> | null | undefined = undefined;
-    private state: vscode.Memento | undefined;
-    private diagnosticsManager: CMakeDiagnosticsManager | undefined;
+    private m_channel: vscode.OutputChannel;
+    private m_tasks = new Map<number, RunningTask>();
+    private m_nextId = 1;
+    private m_msvcEnv: Record<string, string> | null | undefined = undefined;
+    private m_state: vscode.Memento | undefined;
+    private m_diagnosticsManager: CMakeDiagnosticsManager | undefined;
 
-    private readonly _onTasksChanged = new vscode.EventEmitter<RunningTask[]>();
-    readonly onTasksChanged: vscode.Event<RunningTask[]> = this._onTasksChanged.event;
+    private readonly m_onTasksChanged = new vscode.EventEmitter<RunningTask[]>();
+    readonly onTasksChanged: vscode.Event<RunningTask[]> = this.m_onTasksChanged.event;
 
-    constructor(state?: vscode.Memento, diagnosticsManager?: CMakeDiagnosticsManager) {
-        this.state = state;
-        this.diagnosticsManager = diagnosticsManager;
+    constructor(aState?: vscode.Memento, aDiagnosticsManager?: CMakeDiagnosticsManager) {
+        this.m_state = aState;
+        this.m_diagnosticsManager = aDiagnosticsManager;
         const colorize = vscode.workspace.getConfiguration('CMakeGraph').get<boolean>('colorizeOutput', true);
-        this.channel = colorize
+        this.m_channel = colorize
             ? vscode.window.createOutputChannel('CMakeGraph', 'vscmake-output')
             : vscode.window.createOutputChannel('CMakeGraph');
 
         // Restore persisted MSVC env from previous session
-        if (state) {
-            const persisted = state.get<Record<string, string> | null>(Runner.MSVC_STATE_KEY);
+        if (aState) {
+            const persisted = aState.get<Record<string, string> | null>(Runner.MSVC_STATE_KEY);
             if (persisted !== undefined) {
-                this.msvcEnv = persisted;
+                this.m_msvcEnv = persisted;
             }
         }
     }
 
-    dispose(): void { this.channel.dispose(); }
+    dispose(): void { this.m_channel.dispose(); }
 
     /** Write a message to the output channel (visible to the user). */
-    logToOutput(message: string): void {
-        this.channel.appendLine(message);
-        this.channel.show(true);
+    logToOutput(aMessage: string): void {
+        this.m_channel.appendLine(aMessage);
+        this.m_channel.show(true);
     }
 
-    getRunningTasks(): RunningTask[] { return [...this.tasks.values()]; }
+    getRunningTasks(): RunningTask[] { return [...this.m_tasks.values()]; }
 
     cancelAll(): void {
-        for (const t of this.tasks.values()) { t.cancel(); }
+        for (const t of this.m_tasks.values()) { t.cancel(); }
     }
 
     // --------------------------------------------------------
@@ -81,12 +81,12 @@ export class Runner {
     private resolveMsvcEnv(): Record<string, string> | undefined {
         if (!isWindows()) { return undefined; }
 
-        if (this.msvcEnv !== undefined) {
-            return this.msvcEnv ?? undefined;
+        if (this.m_msvcEnv !== undefined) {
+            return this.m_msvcEnv ?? undefined;
         }
 
         if (isClInPath()) {
-            this.msvcEnv = null;
+            this.m_msvcEnv = null;
             this.persistMsvcEnv();
             return undefined;
         }
@@ -95,50 +95,50 @@ export class Runner {
         if (auto) {
             const env = captureVcvarsEnv(auto.vcvarsall, auto.arch);
             if (env) {
-                this.channel.appendLine(
+                this.m_channel.appendLine(
                     `ℹ CMakeGraph: MSVC environment auto-detected (${auto.arch})`
                 );
-                this.msvcEnv = env;
+                this.m_msvcEnv = env;
                 this.persistMsvcEnv();
                 return env;
             }
         }
 
-        this.msvcEnv = null;
+        this.m_msvcEnv = null;
         this.persistMsvcEnv();
         return undefined;
     }
 
     private persistMsvcEnv(): void {
-        this.state?.update(Runner.MSVC_STATE_KEY, this.msvcEnv);
+        this.m_state?.update(Runner.MSVC_STATE_KEY, this.m_msvcEnv);
     }
 
     // --------------------------------------------------------
     // Silent generic execution (discovery, listing)
     // --------------------------------------------------------
-    async exec(cmd: string, args: string[], cwd: string): Promise<RunResult> {
-        return this.run(cmd, args, cwd, { silent: true });
+    async exec(aCmd: string, aArgs: string[], aCwd: string): Promise<RunResult> {
+        return this.run(aCmd, aArgs, aCwd, { silent: true });
     }
 
     // --------------------------------------------------------
     // cmake --preset <preset>  OU  cmake -S <src> -B <build>
     // --------------------------------------------------------
     async configure(
-        sourceDir: string | undefined,
-        buildDir: string | undefined,
-        defs: Record<string, string> = {},
-        preset?: string,
-        cmakePath?: string
+        aSourceDir: string | undefined,
+        aBuildDir: string | undefined,
+        aDefs: Record<string, string> = {},
+        aPreset?: string,
+        aCmakePath?: string
     ): Promise<RunResult> {
-        const cmd = cmakePath || 'cmake';
+        const cmd = aCmakePath || 'cmake';
         const args: string[] = [];
-        if (preset) {
-            args.push('--preset', preset);
+        if (aPreset) {
+            args.push('--preset', aPreset);
         } else {
-            args.push('-S', sourceDir!, '-B', buildDir!);
+            args.push('-S', aSourceDir!, '-B', aBuildDir!);
         }
-        for (const [k, v] of Object.entries(defs)) { args.push(`-D${k}=${v}`); }
-        const cwd = sourceDir ?? '.';
+        for (const [k, v] of Object.entries(aDefs)) { args.push(`-D${k}=${v}`); }
+        const cwd = aSourceDir ?? '.';
         return this.run(cmd, args, cwd, { diagnosticsSourceDir: cwd });
     }
 
@@ -146,106 +146,106 @@ export class Runner {
     // cmake --build --preset <preset>  OU  cmake --build <dir>
     // --------------------------------------------------------
     async build(
-        buildDir: string | undefined,
-        target?: string,
-        config?: string,
-        preset?: string,
-        cmakePath?: string,
-        jobs?: number
+        aBuildDir: string | undefined,
+        aTarget?: string,
+        aConfig?: string,
+        aPreset?: string,
+        aCmakePath?: string,
+        aJobs?: number
     ): Promise<RunResult> {
-        const cmd = cmakePath || 'cmake';
+        const cmd = aCmakePath || 'cmake';
         const args: string[] = [];
-        if (preset) {
-            args.push('--build', '--preset', preset);
-            if (config) { args.push('--config', config); }
+        if (aPreset) {
+            args.push('--build', '--preset', aPreset);
+            if (aConfig) { args.push('--config', aConfig); }
         } else {
-            args.push('--build', buildDir!);
-            if (target) { args.push('--target', target); }
-            if (config) { args.push('--config', config); }
+            args.push('--build', aBuildDir!);
+            if (aTarget) { args.push('--target', aTarget); }
+            if (aConfig) { args.push('--config', aConfig); }
         }
-        if (jobs && jobs > 0) { args.push('-j', String(jobs)); }
-        return this.run(cmd, args, buildDir ?? '.');
+        if (aJobs && aJobs > 0) { args.push('-j', String(aJobs)); }
+        return this.run(cmd, args, aBuildDir ?? '.');
     }
 
     // --------------------------------------------------------
     // cmake --build <dir> --target A --target B  (multi-target)
     // --------------------------------------------------------
     async buildTargets(
-        buildDir: string,
-        targets: string[],
-        config?: string,
-        cmakePath?: string,
-        jobs?: number
+        aBuildDir: string,
+        aTargets: string[],
+        aConfig?: string,
+        aCmakePath?: string,
+        aJobs?: number
     ): Promise<RunResult> {
-        const cmd = cmakePath || 'cmake';
-        const args = ['--build', buildDir];
-        for (const t of targets) { args.push('--target', t); }
-        if (config) { args.push('--config', config); }
-        if (jobs && jobs > 0) { args.push('-j', String(jobs)); }
-        return this.run(cmd, args, buildDir);
+        const cmd = aCmakePath || 'cmake';
+        const args = ['--build', aBuildDir];
+        for (const t of aTargets) { args.push('--target', t); }
+        if (aConfig) { args.push('--config', aConfig); }
+        if (aJobs && aJobs > 0) { args.push('-j', String(aJobs)); }
+        return this.run(cmd, args, aBuildDir);
     }
 
     async cleanAndBuildTargets(
-        buildDir: string,
-        targets: string[],
-        config?: string,
-        cmakePath?: string,
-        jobs?: number
+        aBuildDir: string,
+        aTargets: string[],
+        aConfig?: string,
+        aCmakePath?: string,
+        aJobs?: number
     ): Promise<RunResult> {
-        const cmd = cmakePath || 'cmake';
-        const args = ['--build', buildDir];
-        for (const t of targets) { args.push('--target', t); }
+        const cmd = aCmakePath || 'cmake';
+        const args = ['--build', aBuildDir];
+        for (const t of aTargets) { args.push('--target', t); }
         args.push('--clean-first');
-        if (config) { args.push('--config', config); }
-        if (jobs && jobs > 0) { args.push('-j', String(jobs)); }
-        return this.run(cmd, args, buildDir);
+        if (aConfig) { args.push('--config', aConfig); }
+        if (aJobs && aJobs > 0) { args.push('-j', String(aJobs)); }
+        return this.run(cmd, args, aBuildDir);
     }
 
-    async clean(buildDir: string, cmakePath?: string): Promise<RunResult> {
-        return this.build(buildDir, 'clean', undefined, undefined, cmakePath);
+    async clean(aBuildDir: string, aCmakePath?: string): Promise<RunResult> {
+        return this.build(aBuildDir, 'clean', undefined, undefined, aCmakePath);
     }
 
-    async install(buildDir: string, prefix?: string, cmakePath?: string): Promise<RunResult> {
-        const cmd = cmakePath || 'cmake';
-        const args = ['--install', buildDir];
-        if (prefix) { args.push('--prefix', prefix); }
-        return this.run(cmd, args, buildDir);
+    async install(aBuildDir: string, aPrefix?: string, aCmakePath?: string): Promise<RunResult> {
+        const cmd = aCmakePath || 'cmake';
+        const args = ['--install', aBuildDir];
+        if (aPrefix) { args.push('--prefix', aPrefix); }
+        return this.run(cmd, args, aBuildDir);
     }
 
     // --------------------------------------------------------
     // ctest
     // --------------------------------------------------------
     async test(
-        buildDir: string | undefined,
-        config?: string,
-        preset?: string,
-        ctestPath?: string,
-        jobs?: number
+        aBuildDir: string | undefined,
+        aConfig?: string,
+        aPreset?: string,
+        aCtestPath?: string,
+        aJobs?: number
     ): Promise<RunResult> {
-        const cmd = ctestPath || 'ctest';
+        const cmd = aCtestPath || 'ctest';
         const args: string[] = [];
-        if (preset) {
-            args.push('--preset', preset);
+        if (aPreset) {
+            args.push('--preset', aPreset);
         } else {
-            args.push('--test-dir', buildDir!);
-            if (config) { args.push('-C', config); }
+            args.push('--test-dir', aBuildDir!);
+            if (aConfig) { args.push('-C', aConfig); }
         }
-        if (jobs && jobs > 0) { args.push('-j', String(jobs)); }
-        return this.run(cmd, args, buildDir ?? '.');
+        if (aJobs && aJobs > 0) { args.push('-j', String(aJobs)); }
+        return this.run(cmd, args, aBuildDir ?? '.');
     }
 
     async testFiltered(
-        buildDir: string,
-        testName: string,
-        config?: string,
-        ctestPath?: string,
-        jobs?: number
+        aBuildDir: string,
+        aTestName: string,
+        aConfig?: string,
+        aCtestPath?: string,
+        aJobs?: number
     ): Promise<RunResult> {
-        const cmd = ctestPath || 'ctest';
-        const args = ['--test-dir', buildDir, '-R', `^${testName}$`];
-        if (config) { args.push('-C', config); }
-        if (jobs && jobs > 0) { args.push('-j', String(jobs)); }
-        return this.run(cmd, args, buildDir);
+        const cmd = aCtestPath || 'ctest';
+        const args = ['--test-dir', aBuildDir, '-R', `^${aTestName}$`];
+        if (aConfig) { args.push('-C', aConfig); }
+        if (aJobs && aJobs > 0) { args.push('-j', String(aJobs)); }
+        return this.run(cmd, args, aBuildDir);
     }
 
     /**
@@ -254,74 +254,74 @@ export class Runner {
      * silently ignoring targets that are not actual CTest tests.
      */
     async testByRegex(
-        buildDir: string,
-        regex: string,
-        config?: string,
-        ctestPath?: string,
-        jobs?: number
+        aBuildDir: string,
+        aRegex: string,
+        aConfig?: string,
+        aCtestPath?: string,
+        aJobs?: number
     ): Promise<RunResult> {
-        const cmd = ctestPath || 'ctest';
-        const args = ['--test-dir', buildDir, '-R', regex, '--no-tests=ignore'];
-        if (config) { args.push('-C', config); }
-        if (jobs && jobs > 0) { args.push('-j', String(jobs)); }
-        return this.run(cmd, args, buildDir);
+        const cmd = aCtestPath || 'ctest';
+        const args = ['--test-dir', aBuildDir, '-R', aRegex, '--no-tests=ignore'];
+        if (aConfig) { args.push('-C', aConfig); }
+        if (aJobs && aJobs > 0) { args.push('-j', String(aJobs)); }
+        return this.run(cmd, args, aBuildDir);
     }
 
-    async listTests(buildDir: string, ctestPath?: string): Promise<RunResult> {
-        const cmd = ctestPath || 'ctest';
-        const args = ['--test-dir', buildDir, '--show-only=json-v1'];
-        return this.run(cmd, args, buildDir, { silent: true });
+    async listTests(aBuildDir: string, aCtestPath?: string): Promise<RunResult> {
+        const cmd = aCtestPath || 'ctest';
+        const args = ['--test-dir', aBuildDir, '--show-only=json-v1'];
+        return this.run(cmd, args, aBuildDir, { silent: true });
     }
 
     async listTestsWithPreset(
-        preset: string,
-        sourceDir: string,
-        ctestPath?: string
+        aPreset: string,
+        aSourceDir: string,
+        aCtestPath?: string
     ): Promise<RunResult> {
-        const cmd = ctestPath || 'ctest';
-        const args = ['--preset', preset, '--show-only=json-v1'];
-        return this.run(cmd, args, sourceDir, { silent: true });
+        const cmd = aCtestPath || 'ctest';
+        const args = ['--preset', aPreset, '--show-only=json-v1'];
+        return this.run(cmd, args, aSourceDir, { silent: true });
     }
 
     // --------------------------------------------------------
     // Private
     // --------------------------------------------------------
-    private run(cmd: string, args: string[], cwd: string, opts: RunOptions = {}): Promise<RunResult> {
-        const { silent = false, diagnosticsSourceDir } = opts;
-        const id = this.nextId++;
-        const label = `${cmd} ${args.join(' ')}`;
-        const isWin = os.platform() === 'win32';
-        const clearOutput = !silent && vscode.workspace.getConfiguration('CMakeGraph').get<boolean>('clearOutputBeforeRun', true);
+    private run(aCmd: string, aArgs: string[], aCwd: string, aOpts: RunOptions = {}): Promise<RunResult> {
+        const { silent, diagnosticsSourceDir } = aOpts;
+        const id = this.m_nextId++;
+        const label = `${aCmd} ${aArgs.join(' ')}`;
+        const is_win = os.platform() === 'win32';
+        const clear_output = !silent && vscode.workspace.getConfiguration('CMakeGraph').get<boolean>('clearOutputBeforeRun', true);
 
-        const msvcEnv = this.resolveMsvcEnv();
+        const msvc_env = this.resolveMsvcEnv();
 
         // If this is a configure run, clear previous diagnostics
-        const parseDiag = diagnosticsSourceDir && this.diagnosticsManager;
-        if (parseDiag) {
-            this.diagnosticsManager!.clear();
+        const parse_diag = diagnosticsSourceDir && this.m_diagnosticsManager;
+        if (parse_diag) {
+            this.m_diagnosticsManager!.clear();
         }
 
         return new Promise(resolve => {
-            if (clearOutput) { this.channel.clear(); }
+            if (clear_output) { this.m_channel.clear(); }
             if (!silent) {
-                this.channel.appendLine(`> ${label}`);
-                this.channel.appendLine('');
-                this.channel.show(true);
+                this.m_channel.appendLine(`> ${label}`);
+                this.m_channel.appendLine('');
+                this.m_channel.show(true);
             }
 
-            const spawnEnv = msvcEnv ? { ...msvcEnv } : undefined;
+            const spawn_env = msvc_env ? { ...msvc_env } : undefined;
 
-            const proc: ChildProcess = isWin
-                ? spawn(cmd, args, { cwd, shell: false, env: spawnEnv })
-                : spawn(cmd, args, { cwd, shell: false, detached: true });
+            const proc: ChildProcess = is_win
+                ? spawn(aCmd, aArgs, { cwd: aCwd, shell: false, env: spawn_env })
+                : spawn(aCmd, aArgs, { cwd: aCwd, shell: false, detached: true });
 
             let stdout = '', stderr = '', killed = false;
 
             // Line buffer for diagnostic parsing (data chunks don't align with lines)
-            let lineBuf = '';
+            let line_buf = '';
 
-            const killProc = (): void => {
-                if (isWin) {
+            const kill_proc = (): void => {
+                if (is_win) {
                     spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'], { shell: false });
                 } else {
                     try { process.kill(-proc.pid!, 'SIGTERM'); } catch { proc.kill(); }
@@ -333,60 +333,60 @@ export class Runner {
                 label,
                 cancel: () => {
                     killed = true;
-                    killProc();
-                    if (!silent) { this.channel.appendLine(`⊘ Cancelled: ${label}`); }
+                    kill_proc();
+                    if (!silent) { this.m_channel.appendLine(`⊘ Cancelled: ${label}`); }
                 },
             };
 
-            this.tasks.set(id, task);
-            this._onTasksChanged.fire(this.getRunningTasks());
+            this.m_tasks.set(id, task);
+            this.m_onTasksChanged.fire(this.getRunningTasks());
 
             const finish = (result: RunResult): void => {
-                this.tasks.delete(id);
-                this._onTasksChanged.fire(this.getRunningTasks());
+                this.m_tasks.delete(id);
+                this.m_onTasksChanged.fire(this.getRunningTasks());
                 resolve(result);
             };
 
             /** Feed text to the diagnostic parser, handling partial lines */
-            const feedDiagnostics = (text: string): void => {
-                if (!parseDiag) { return; }
-                lineBuf += text;
-                const lines = lineBuf.split('\n');
+            const feed_diagnostics = (text: string): void => {
+                if (!parse_diag) { return; }
+                line_buf += text;
+                const lines = line_buf.split('\n');
                 // Keep the last (potentially incomplete) chunk in the buffer
-                lineBuf = lines.pop()!;
+                line_buf = lines.pop()!;
                 for (const line of lines) {
-                    this.diagnosticsManager!.parseLine(line, diagnosticsSourceDir!);
+                    this.m_diagnosticsManager!.parseLine(line, diagnosticsSourceDir!);
                 }
             };
 
             proc.stdout?.on('data', (chunk: Buffer) => {
                 const text = chunk.toString();
                 stdout += text;
-                if (!silent) { this.channel.append(text); }
-                feedDiagnostics(text);
+                if (!silent) { this.m_channel.append(text); }
+                feed_diagnostics(text);
             });
             proc.stderr?.on('data', (chunk: Buffer) => {
                 const text = chunk.toString();
                 stderr += text;
-                if (!silent) { this.channel.append(text); }
-                feedDiagnostics(text);
+                if (!silent) { this.m_channel.append(text); }
+                feed_diagnostics(text);
             });
             proc.on('error', err => {
-                const msg = `Unable to launch ${cmd}: ${err.message}`;
+                const msg = `Unable to launch ${aCmd}: ${err.message}`;
                 if (!silent) {
-                    this.channel.appendLine(msg);
+                    this.m_channel.appendLine(msg);
                     vscode.window.showErrorMessage(msg);
                 }
                 finish({ success: false, stdout, stderr: msg, code: null, cancelled: false });
             });
             proc.on('close', (code: number | null) => {
                 // Flush remaining line buffer to diagnostics parser
-                if (parseDiag && lineBuf.length > 0) {
-                    this.diagnosticsManager!.parseLine(lineBuf, diagnosticsSourceDir!);
-                    lineBuf = '';
+                if (parse_diag && line_buf.length > 0) {
+                    this.m_diagnosticsManager!.parseLine(line_buf, diagnosticsSourceDir!);
+                    line_buf = '';
                 }
-                if (parseDiag) {
-                    this.diagnosticsManager!.finalize(diagnosticsSourceDir!);
+                if (parse_diag) {
+                    this.m_diagnosticsManager!.finalize(diagnosticsSourceDir!);
                 }
 
                 if (killed) {
@@ -394,10 +394,10 @@ export class Runner {
                 } else {
                     const success = code === 0;
                     if (!silent) {
-                        this.channel.appendLine('');
-                        this.channel.appendLine(success
-                            ? `✓ ${cmd} completed (code ${code})`
-                            : `✗ ${cmd} failed (code ${code})`
+                        this.m_channel.appendLine('');
+                        this.m_channel.appendLine(success
+                            ? `✓ ${aCmd} completed (code ${code})`
+                            : `✗ ${aCmd} failed (code ${code})`
                         );
                     }
                     finish({ success, stdout, stderr, code, cancelled: false });

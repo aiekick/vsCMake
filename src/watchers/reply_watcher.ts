@@ -8,30 +8,30 @@ import * as path from 'path';
 // ------------------------------------------------------------
 export class ReplyWatcher implements vscode.Disposable {
 
-    private watcher: vscode.FileSystemWatcher;
-    private readonly _onDidReply = new vscode.EventEmitter<void>();
+    private m_watcher: vscode.FileSystemWatcher;
+    private readonly m_onDidReply = new vscode.EventEmitter<void>();
 
     // Event emitted when a new reply is available
-    readonly onDidReply: vscode.Event<void> = this._onDidReply.event;
+    readonly onDidReply: vscode.Event<void> = this.m_onDidReply.event;
 
-    constructor(buildDir: string) {
+    constructor(aBuildDir: string) {
         // Watch only index-*.json files
         // because it's the last file written by CMake after a configure
         const pattern = new vscode.RelativePattern(
-            path.join(buildDir, '.cmake', 'api', 'v1', 'reply'),
+            path.join(aBuildDir, '.cmake', 'api', 'v1', 'reply'),
             'index-*.json'
         );
 
-        this.watcher = vscode.workspace.createFileSystemWatcher(pattern);
+        this.m_watcher = vscode.workspace.createFileSystemWatcher(pattern);
 
         // New configure → new index file
-        this.watcher.onDidCreate(() => this._onDidReply.fire());
+        this.m_watcher.onDidCreate(() => this.m_onDidReply.fire());
         // Reconfigure in place (rare but possible)
-        this.watcher.onDidChange(() => this._onDidReply.fire());
+        this.m_watcher.onDidChange(() => this.m_onDidReply.fire());
     }
 
     dispose() {
-        this.watcher.dispose();
-        this._onDidReply.dispose();
+        this.m_watcher.dispose();
+        this.m_onDidReply.dispose();
     }
 }

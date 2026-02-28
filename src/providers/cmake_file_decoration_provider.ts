@@ -12,68 +12,68 @@ import { CMakeDiagnosticsManager, CMakeDiagnosticSeverity } from '../cmake/cmake
  * but uses red for errors, yellow for warnings.
  */
 export class CMakeFileDecorationProvider implements vscode.FileDecorationProvider, vscode.Disposable {
-    private readonly _onDidChangeFileDecorations = new vscode.EventEmitter<vscode.Uri | vscode.Uri[] | undefined>();
-    public readonly onDidChangeFileDecorations = this._onDidChangeFileDecorations.event;
+    private readonly m_onDidChangeFileDecorations = new vscode.EventEmitter<vscode.Uri | vscode.Uri[] | undefined>();
+    public readonly onDidChangeFileDecorations = this.m_onDidChangeFileDecorations.event;
 
-    private readonly _disposables: vscode.Disposable[] = [];
+    private readonly m_disposables: vscode.Disposable[] = [];
 
-    constructor(private readonly _diagnosticsManager: CMakeDiagnosticsManager) {
+    constructor(private readonly m_diagnosticsManager: CMakeDiagnosticsManager) {
         // Listen for diagnostic changes and refresh decorations
-        this._disposables.push(
-            this._diagnosticsManager.onDidChangeDiagnostics(() => {
+        this.m_disposables.push(
+            this.m_diagnosticsManager.onDidChangeDiagnostics(() => {
                 // undefined = refresh all decorations
-                this._onDidChangeFileDecorations.fire(undefined);
+                this.m_onDidChangeFileDecorations.fire(undefined);
             })
         );
 
         // Register ourselves as a decoration provider
-        this._disposables.push(
+        this.m_disposables.push(
             vscode.window.registerFileDecorationProvider(this)
         );
     }
 
     dispose(): void {
-        this._disposables.forEach(d => d.dispose());
-        this._onDidChangeFileDecorations.dispose();
+        this.m_disposables.forEach(d => d.dispose());
+        this.m_onDidChangeFileDecorations.dispose();
     }
 
     provideFileDecoration(
-        uri: vscode.Uri,
-        _token: vscode.CancellationToken
+        aUri: vscode.Uri,
+        aToken: vscode.CancellationToken
     ): vscode.ProviderResult<vscode.FileDecoration> {
         // Check if this is a file with diagnostics
-        const fileSeverity = this._diagnosticsManager.getFileSeverity(uri);
-        if (fileSeverity) {
-            return this._createDecoration(fileSeverity, false);
+        const file_severity = this.m_diagnosticsManager.getFileSeverity(aUri);
+        if (file_severity) {
+            return this._createDecoration(file_severity, false);
         }
 
         // Check if this is a directory containing files with diagnostics
-        const dirSeverity = this._diagnosticsManager.getDirectorySeverity(uri);
-        if (dirSeverity) {
-            return this._createDecoration(dirSeverity, true);
+        const dir_severity = this.m_diagnosticsManager.getDirectorySeverity(aUri);
+        if (dir_severity) {
+            return this._createDecoration(dir_severity, true);
         }
 
         return undefined;
     }
 
-    private _createDecoration(severity: CMakeDiagnosticSeverity, isDirectory: boolean): vscode.FileDecoration {
-        switch (severity) {
+    private _createDecoration(aSeverity: CMakeDiagnosticSeverity, aIsDirectory: boolean): vscode.FileDecoration {
+        switch (aSeverity) {
             case CMakeDiagnosticSeverity.Error:
                 return new vscode.FileDecoration(
                     'E',
-                    isDirectory ? 'Contains CMake errors' : 'CMake error',
+                    aIsDirectory ? 'Contains CMake errors' : 'CMake error',
                     new vscode.ThemeColor('list.errorForeground')
                 );
             case CMakeDiagnosticSeverity.Warning:
                 return new vscode.FileDecoration(
                     'W',
-                    isDirectory ? 'Contains CMake warnings' : 'CMake warning',
+                    aIsDirectory ? 'Contains CMake warnings' : 'CMake warning',
                     new vscode.ThemeColor('list.warningForeground')
                 );
             case CMakeDiagnosticSeverity.Deprecation:
                 return new vscode.FileDecoration(
                     'D',
-                    isDirectory ? 'Contains CMake deprecation warnings' : 'CMake deprecation warning',
+                    aIsDirectory ? 'Contains CMake deprecation warnings' : 'CMake deprecation warning',
                     new vscode.ThemeColor('list.warningForeground')
                 );
         }

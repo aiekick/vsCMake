@@ -16,7 +16,7 @@ export type MsvcArch = 'x86' | 'x64' | 'arm' | 'arm64'
     | 'amd64_x86' | 'amd64_arm' | 'amd64_arm64';
 
 /** Cache of resolved environments (key = vcvarsall+arch) */
-const envCache = new Map<string, Record<string, string>>();
+const env_cache = new Map<string, Record<string, string>>();
 
 export function isWindows(): boolean {
     return os.platform() === 'win32';
@@ -27,15 +27,15 @@ export function isWindows(): boolean {
  * The result is cached by (vcvarsallPath, arch).
  */
 export function captureVcvarsEnv(
-    vcvarsallPath: string,
-    arch: MsvcArch
+    aVcvarsallPath: string,
+    aArch: MsvcArch
 ): Record<string, string> | null {
-    const cacheKey = `${vcvarsallPath}|${arch}`;
-    if (envCache.has(cacheKey)) { return envCache.get(cacheKey)!; }
+    const cache_key = `${aVcvarsallPath}|${aArch}`;
+    if (env_cache.has(cache_key)) { return env_cache.get(cache_key)!; }
 
     try {
         const output = execSync(
-            `cmd.exe /s /c ""${vcvarsallPath}" ${arch} >nul 2>&1 && set"`,
+            `cmd.exe /s /c ""${aVcvarsallPath}" ${aArch} >nul 2>&1 && set"`,
             {
                 encoding: 'utf-8',
                 timeout: 30000,
@@ -54,7 +54,7 @@ export function captureVcvarsEnv(
 
         if (!env['PATH'] && !env['Path']) { return null; }
 
-        envCache.set(cacheKey, env);
+        env_cache.set(cache_key, env);
         return env;
     } catch {
         return null;
@@ -75,7 +75,7 @@ export function isClInPath(): boolean {
 }
 
 export function clearMsvcEnvCache(): void {
-    envCache.clear();
+    env_cache.clear();
 }
 
 /**
@@ -93,19 +93,19 @@ export function findDefaultVcvarsall(): { vcvarsall: string; arch: MsvcArch } | 
     if (!fs.existsSync(vswhere)) { return null; }
 
     try {
-        const vsPath = execSync(
+        const vs_path = execSync(
             `"${vswhere}" -latest -property installationPath`,
             { encoding: 'utf-8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'] }
         ).trim();
 
-        if (!vsPath) { return null; }
+        if (!vs_path) { return null; }
 
-        const vcvarsall = path.join(vsPath, 'VC', 'Auxiliary', 'Build', 'vcvarsall.bat');
+        const vcvarsall = path.join(vs_path, 'VC', 'Auxiliary', 'Build', 'vcvarsall.bat');
         if (!fs.existsSync(vcvarsall)) { return null; }
 
-        const hostArch = os.arch();
-        const arch: MsvcArch = hostArch === 'arm64' ? 'arm64'
-            : hostArch === 'ia32' ? 'x86'
+        const host_arch = os.arch();
+        const arch: MsvcArch = host_arch === 'arm64' ? 'arm64'
+            : host_arch === 'ia32' ? 'x86'
                 : 'x64';
 
         return { vcvarsall, arch };

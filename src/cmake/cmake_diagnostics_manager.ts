@@ -21,88 +21,88 @@ export interface CMakeDiagnosticInfo {
  * and exposes diagnostic state for FileDecorationProvider.
  */
 export class CMakeDiagnosticsManager implements vscode.Disposable {
-    private readonly _diagnosticCollection: vscode.DiagnosticCollection;
-    private readonly _onDidChangeDiagnostics = new vscode.EventEmitter<void>();
-    public readonly onDidChangeDiagnostics = this._onDidChangeDiagnostics.event;
+    private readonly m_diagnosticCollection: vscode.DiagnosticCollection;
+    private readonly m_onDidChangeDiagnostics = new vscode.EventEmitter<void>();
+    public readonly onDidChangeDiagnostics = this.m_onDidChangeDiagnostics.event;
 
     // Map of absolute file path -> diagnostics for that file
-    private _fileDiagnostics: Map<string, CMakeDiagnosticInfo[]> = new Map();
+    private m_fileDiagnostics: Map<string, CMakeDiagnosticInfo[]> = new Map();
 
     // Set of directories that contain files with diagnostics (for parent propagation)
-    private _affectedDirectories: Map<string, CMakeDiagnosticSeverity> = new Map();
+    private m_affectedDirectories: Map<string, CMakeDiagnosticSeverity> = new Map();
 
     // Buffer for multi-line parsing
-    private _parseBuffer: string[] = [];
-    private _currentDiagnostic: Partial<CMakeDiagnosticInfo> | null = null;
+    private m_parseBuffer: string[] = [];
+    private m_currentDiagnostic: Partial<CMakeDiagnosticInfo> | null = null;
 
     constructor() {
-        this._diagnosticCollection = vscode.languages.createDiagnosticCollection('cmake');
+        this.m_diagnosticCollection = vscode.languages.createDiagnosticCollection('cmake');
     }
 
     dispose(): void {
-        this._diagnosticCollection.dispose();
-        this._onDidChangeDiagnostics.dispose();
+        this.m_diagnosticCollection.dispose();
+        this.m_onDidChangeDiagnostics.dispose();
     }
 
     /**
      * Clear all diagnostics. Call this at the start of each configure.
      */
     clear(): void {
-        this._fileDiagnostics.clear();
-        this._affectedDirectories.clear();
-        this._diagnosticCollection.clear();
-        this._currentDiagnostic = null;
-        this._parseBuffer = [];
-        this._onDidChangeDiagnostics.fire();
+        this.m_fileDiagnostics.clear();
+        this.m_affectedDirectories.clear();
+        this.m_diagnosticCollection.clear();
+        this.m_currentDiagnostic = null;
+        this.m_parseBuffer = [];
+        this.m_onDidChangeDiagnostics.fire();
     }
 
     /**
      * Feed a line of CMake output for parsing.
      * Call this for each line of stdout/stderr during configure.
      */
-    parseLine(line: string, sourceDir: string): void {
+    parseLine(aLine: string, aSourceDir: string): void {
         // Patterns for CMake diagnostic headers:
         // CMake Error at path/to/CMakeLists.txt:42 (command):
         // CMake Warning at path/to/CMakeLists.txt:42 (command):
         // CMake Warning (dev) at path/to/CMakeLists.txt:42 (command):
         // CMake Deprecation Warning at path/to/CMakeLists.txt:42:
         // CMake Error in path/to/CMakeLists.txt:
-        const headerPattern = /^CMake\s+(Error|Warning|Deprecation Warning|Warning \(dev\))\s+(?:at|in)\s+(.+?)(?::(\d+))?\s*(?:\((\w+)\))?:\s*$/;
+        const header_pattern = /^CMake\s+(Error|Warning|Deprecation Warning|Warning \(dev\))\s+(?:at|in)\s+(.+?)(?::(\d+))?\s*(?:\((\w+)\))?:\s*$/;
 
-        const match = line.match(headerPattern);
+        const match = aLine.match(header_pattern);
 
         if (match) {
             // Flush any previous diagnostic being built
-            this._flushCurrentDiagnostic(sourceDir);
+            this.flushCurrentDiagnostic(aSourceDir);
 
-            const severityStr = match[1];
-            const filePath = match[2];
-            const lineNum = match[3] ? parseInt(match[3], 10) : 1;
+            const severity_str = match[1];
+            const file_path = match[2];
+            const line_num = match[3] ? parseInt(match[3], 10) : 1;
             const command = match[4] || undefined;
 
             let severity: CMakeDiagnosticSeverity;
-            if (severityStr === 'Error') {
+            if (severity_str === 'Error') {
                 severity = CMakeDiagnosticSeverity.Error;
-            } else if (severityStr === 'Deprecation Warning') {
+            } else if (severity_str === 'Deprecation Warning') {
                 severity = CMakeDiagnosticSeverity.Deprecation;
             } else {
                 severity = CMakeDiagnosticSeverity.Warning;
             }
 
-            this._currentDiagnostic = {
-                file: filePath,
-                line: lineNum,
+            this.m_currentDiagnostic = {
+                file: file_path,
+                line: line_num,
                 command,
                 severity,
             };
-            this._parseBuffer = [];
-        } else if (this._currentDiagnostic) {
+            this.m_parseBuffer = [];
+        } else if (this.m_currentDiagnostic) {
             // Blank line or next CMake message ends the current diagnostic
-            const trimmed = line.trim();
-            if (trimmed === '' && this._parseBuffer.length > 0) {
-                this._flushCurrentDiagnostic(sourceDir);
+            const trimmed = aLine.trim();
+            if (trimmed === '' && this.m_parseBuffer.length > 0) {
+                this.flushCurrentDiagnostic(aSourceDir);
             } else if (trimmed !== '') {
-                this._parseBuffer.push(trimmed);
+                this.m_parseBuffer.push(trimmed);
             }
         }
     }
@@ -110,18 +110,18 @@ export class CMakeDiagnosticsManager implements vscode.Disposable {
     /**
      * Call when cmake process finishes to flush any remaining diagnostic.
      */
-    finalize(sourceDir: string): void {
-        this._flushCurrentDiagnostic(sourceDir);
-        this._updateVSCodeDiagnostics();
-        this._computeAffectedDirectories();
-        this._onDidChangeDiagnostics.fire();
+    finalize(aSourceDir: string): void {
+        this.flushCurrentDiagnostic(aSourceDir);
+        this.updateVSCodeDiagnostics();
+        this.computeAffectedDirectories();
+        this.m_onDidChangeDiagnostics.fire();
     }
 
     /**
      * Get the worst severity for a given file URI, or undefined if no diagnostics.
      */
-    getFileSeverity(uri: vscode.Uri): CMakeDiagnosticSeverity | undefined {
-        const diags = this._fileDiagnostics.get(uri.fsPath);
+    getFileSeverity(aUri: vscode.Uri): CMakeDiagnosticSeverity | undefined {
+        const diags = this.m_fileDiagnostics.get(aUri.fsPath);
         if (!diags || diags.length === 0) {
             return undefined;
         }
@@ -137,70 +137,70 @@ export class CMakeDiagnosticsManager implements vscode.Disposable {
     /**
      * Get the worst severity for a directory URI (propagated from children).
      */
-    getDirectorySeverity(uri: vscode.Uri): CMakeDiagnosticSeverity | undefined {
-        return this._affectedDirectories.get(uri.fsPath);
+    getDirectorySeverity(aUri: vscode.Uri): CMakeDiagnosticSeverity | undefined {
+        return this.m_affectedDirectories.get(aUri.fsPath);
     }
 
     /**
      * Check if a file or directory has any diagnostics.
      */
-    hasDiagnostics(uri: vscode.Uri): boolean {
-        return this._fileDiagnostics.has(uri.fsPath) || this._affectedDirectories.has(uri.fsPath);
+    hasDiagnostics(aUri: vscode.Uri): boolean {
+        return this.m_fileDiagnostics.has(aUri.fsPath) || this.m_affectedDirectories.has(aUri.fsPath);
     }
 
     /**
      * Get all files that have diagnostics.
      */
     getAffectedFiles(): vscode.Uri[] {
-        return Array.from(this._fileDiagnostics.keys()).map(f => vscode.Uri.file(f));
+        return Array.from(this.m_fileDiagnostics.keys()).map(f => vscode.Uri.file(f));
     }
 
     /**
      * Get all affected directories.
      */
     getAffectedDirectories(): vscode.Uri[] {
-        return Array.from(this._affectedDirectories.keys()).map(d => vscode.Uri.file(d));
+        return Array.from(this.m_affectedDirectories.keys()).map(d => vscode.Uri.file(d));
     }
 
     // --- Private ---
 
-    private _flushCurrentDiagnostic(sourceDir: string): void {
-        if (!this._currentDiagnostic || this._parseBuffer.length === 0) {
-            this._currentDiagnostic = null;
-            this._parseBuffer = [];
+    private flushCurrentDiagnostic(aSourceDir: string): void {
+        if (!this.m_currentDiagnostic || this.m_parseBuffer.length === 0) {
+            this.m_currentDiagnostic = null;
+            this.m_parseBuffer = [];
             return;
         }
 
-        const message = this._parseBuffer.join('\n');
-        let filePath = this._currentDiagnostic.file!;
+        const message = this.m_parseBuffer.join('\n');
+        let file_path = this.m_currentDiagnostic.file!;
 
         // Resolve relative paths against source directory
-        if (!path.isAbsolute(filePath)) {
-            filePath = path.resolve(sourceDir, filePath);
+        if (!path.isAbsolute(file_path)) {
+            file_path = path.resolve(aSourceDir, file_path);
         }
 
         const diagnostic: CMakeDiagnosticInfo = {
-            file: filePath,
-            line: this._currentDiagnostic.line || 1,
-            command: this._currentDiagnostic.command,
-            severity: this._currentDiagnostic.severity!,
+            file: file_path,
+            line: this.m_currentDiagnostic.line || 1,
+            command: this.m_currentDiagnostic.command,
+            severity: this.m_currentDiagnostic.severity!,
             message,
         };
 
-        const existing = this._fileDiagnostics.get(filePath) || [];
+        const existing = this.m_fileDiagnostics.get(file_path) || [];
         existing.push(diagnostic);
-        this._fileDiagnostics.set(filePath, existing);
+        this.m_fileDiagnostics.set(file_path, existing);
 
-        this._currentDiagnostic = null;
-        this._parseBuffer = [];
+        this.m_currentDiagnostic = null;
+        this.m_parseBuffer = [];
     }
 
-    private _updateVSCodeDiagnostics(): void {
-        this._diagnosticCollection.clear();
+    private updateVSCodeDiagnostics(): void {
+        this.m_diagnosticCollection.clear();
 
-        for (const [filePath, diags] of this._fileDiagnostics) {
-            const uri = vscode.Uri.file(filePath);
-            const vscodeDiags = diags.map(d => {
+        for (const [file_path, diags] of this.m_fileDiagnostics) {
+            const uri = vscode.Uri.file(file_path);
+            const vscode_diags = diags.map(d => {
                 const range = new vscode.Range(
                     Math.max(0, d.line - 1), 0,
                     Math.max(0, d.line - 1), Number.MAX_SAFE_INTEGER
@@ -233,49 +233,49 @@ export class CMakeDiagnosticsManager implements vscode.Disposable {
                 return diag;
             });
 
-            this._diagnosticCollection.set(uri, vscodeDiags);
+            this.m_diagnosticCollection.set(uri, vscode_diags);
         }
     }
 
-    private _computeAffectedDirectories(): void {
-        this._affectedDirectories.clear();
+    private computeAffectedDirectories(): void {
+        this.m_affectedDirectories.clear();
 
-        for (const [filePath, diags] of this._fileDiagnostics) {
+        for (const [file_path, diags] of this.m_fileDiagnostics) {
             // Determine worst severity for this file
-            let worstSeverity = CMakeDiagnosticSeverity.Deprecation;
+            let worst_severity = CMakeDiagnosticSeverity.Deprecation;
             for (const d of diags) {
                 if (d.severity === CMakeDiagnosticSeverity.Error) {
-                    worstSeverity = CMakeDiagnosticSeverity.Error;
+                    worst_severity = CMakeDiagnosticSeverity.Error;
                     break;
                 }
                 if (d.severity === CMakeDiagnosticSeverity.Warning) {
-                    worstSeverity = CMakeDiagnosticSeverity.Warning;
+                    worst_severity = CMakeDiagnosticSeverity.Warning;
                 }
             }
 
             // Propagate up the directory tree
-            let dir = path.dirname(filePath);
+            let dir = path.dirname(file_path);
             while (dir && dir !== path.dirname(dir)) {
-                const existing = this._affectedDirectories.get(dir);
-                const merged = this._mergeSeverity(existing, worstSeverity);
+                const existing = this.m_affectedDirectories.get(dir);
+                const merged = this.mergeSeverity(existing, worst_severity);
                 if (existing === merged) {
                     break; // No change, ancestors already have same or worse severity
                 }
-                this._affectedDirectories.set(dir, merged);
+                this.m_affectedDirectories.set(dir, merged);
                 dir = path.dirname(dir);
             }
         }
     }
 
-    private _mergeSeverity(
-        existing: CMakeDiagnosticSeverity | undefined,
-        incoming: CMakeDiagnosticSeverity
+    private mergeSeverity(
+        aExisting: CMakeDiagnosticSeverity | undefined,
+        aIncoming: CMakeDiagnosticSeverity
     ): CMakeDiagnosticSeverity {
-        if (!existing) { return incoming; }
-        if (existing === CMakeDiagnosticSeverity.Error || incoming === CMakeDiagnosticSeverity.Error) {
+        if (!aExisting) { return aIncoming; }
+        if (aExisting === CMakeDiagnosticSeverity.Error || aIncoming === CMakeDiagnosticSeverity.Error) {
             return CMakeDiagnosticSeverity.Error;
         }
-        if (existing === CMakeDiagnosticSeverity.Warning || incoming === CMakeDiagnosticSeverity.Warning) {
+        if (aExisting === CMakeDiagnosticSeverity.Warning || aIncoming === CMakeDiagnosticSeverity.Warning) {
             return CMakeDiagnosticSeverity.Warning;
         }
         return CMakeDiagnosticSeverity.Deprecation;

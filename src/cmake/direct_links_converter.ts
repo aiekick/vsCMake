@@ -14,20 +14,20 @@ import { Target, BacktraceGraph, BacktraceNode } from './types';
  * A fragment is transitive if a dependency has a fragment with the
  * exact same full backtrace chain signature.
  */
-export function computeDirectLinks(reply: CmakeReply): CmakeReply {
-    const artifactToId = buildArtifactMap(reply.targets);
-    const byId = new Map(reply.targets.map(t => [t.id, t]));
+export function computeDirectLinks(aReply: CmakeReply): CmakeReply {
+    const artifact_to_id = buildArtifactMap(aReply.targets);
+    const by_id = new Map(aReply.targets.map(t => [t.id, t]));
 
     // Pre-compute link signatures for each target
-    const targetSigs = new Map<string, Set<string>>();
-    for (const t of reply.targets) {
-        targetSigs.set(t.id, getLinkSignatures(t));
+    const target_sigs = new Map<string, Set<string>>();
+    for (const t of aReply.targets) {
+        target_sigs.set(t.id, getLinkSignatures(t));
     }
 
-    for (const t of reply.targets) {
-        t.directLinks = findDirectLinks(t, artifactToId, byId, targetSigs);
+    for (const t of aReply.targets) {
+        t.directLinks = findDirectLinks(t, artifact_to_id, by_id, target_sigs);
     }
-    return reply;
+    return aReply;
 }
 
 /**
@@ -46,20 +46,20 @@ function getLinkSignatures(t: Target): Set<string> {
 }
 
 /**
- * Walk the full backtrace chain from nodeIdx to root.
+ * Walk the full backtrace chain from aNodeIdx to root.
  * Returns a signature like "file1:10|file2:42|file3:1"
  * representing the complete call stack.
  */
 function resolveChainSignature(
-    bg: BacktraceGraph,
-    nodeIdx: number,
+    aBg: BacktraceGraph,
+    aNodeIdx: number,
 ): string | undefined {
     const parts: string[] = [];
-    let idx: number | undefined = nodeIdx;
+    let idx: number | undefined = aNodeIdx;
     while (idx !== undefined) {
-        const node: BacktraceNode = bg.nodes[idx];
+        const node: BacktraceNode = aBg.nodes[idx];
         if (!node) break;
-        const file = bg.files[node.file];
+        const file = aBg.files[node.file];
         if (file && node.line !== undefined) {
             parts.push(normalizePath(file) + ':' + node.line);
         }
@@ -70,27 +70,27 @@ function resolveChainSignature(
 
 function findDirectLinks(
     t: Target,
-    artifactToId: Map<string, string>,
-    byId: Map<string, Target>,
-    targetSigs: Map<string, Set<string>>,
+    aArtifactToId: Map<string, string>,
+    aById: Map<string, Target>,
+    aTargetSigs: Map<string, Set<string>>,
 ): string[] {
     if (!t.link?.commandFragments || !t.backtraceGraph) return [];
 
     const bg = t.backtraceGraph;
     // Match any command containing "target_link_libraries"
     // (handles _target_link_libraries wrappers)
-    const tllIndices = new Set<number>();
+    const tll_indices = new Set<number>();
     bg.commands.forEach((cmd, i) => {
-        if (cmd.includes('target_link_libraries')) tllIndices.add(i);
+        if (cmd.includes('target_link_libraries')) tll_indices.add(i);
     });
-    if (tllIndices.size === 0) return [];
+    if (tll_indices.size === 0) return [];
 
     // Collect signatures from all dependencies
-    const depSigs = new Set<string>();
+    const dep_sigs = new Set<string>();
     for (const dep of t.dependencies ?? []) {
-        const sigs = targetSigs.get(dep.id);
+        const sigs = aTargetSigs.get(dep.id);
         if (sigs) {
-            for (const s of sigs) depSigs.add(s);
+            for (const s of sigs) dep_sigs.add(s);
         }
     }
 
@@ -102,14 +102,14 @@ function findDirectLinks(
 
         // Must be a target_link_libraries call (or wrapper variant)
         const node = bg.nodes[frag.backtrace];
-        if (!node || node.command === undefined || !tllIndices.has(node.command)) continue;
+        if (!node || node.command === undefined || !tll_indices.has(node.command)) continue;
 
         // Full chain signature
         const sig = resolveChainSignature(bg, frag.backtrace);
-        if (sig && depSigs.has(sig)) continue; // transitive
+        if (sig && dep_sigs.has(sig)) continue; // transitive
 
         // Resolve fragment to a target ID
-        const id = findTargetByFragment(normalizePath(frag.fragment), artifactToId);
+        const id = findTargetByFragment(normalizePath(frag.fragment), aArtifactToId);
         if (id && id !== t.id && !seen.has(id)) {
             seen.add(id);
             result.push(id);
@@ -120,9 +120,9 @@ function findDirectLinks(
 
 // ---- Helpers ----
 
-function buildArtifactMap(targets: Target[]): Map<string, string> {
+function buildArtifactMap(aTargets: Target[]): Map<string, string> {
     const m = new Map<string, string>();
-    for (const t of targets) {
+    for (const t of aTargets) {
         for (const a of t.artifacts ?? []) {
             m.set(normalizePath(a.path), t.id);
         }
@@ -131,19 +131,19 @@ function buildArtifactMap(targets: Target[]): Map<string, string> {
 }
 
 function findTargetByFragment(
-    fragPath: string,
-    artifactToId: Map<string, string>,
+    aFragPath: string,
+    aArtifactToId: Map<string, string>,
 ): string | undefined {
-    for (const [artPath, id] of artifactToId) {
-        if (artPath === fragPath
-            || artPath.endsWith('/' + fragPath)
-            || fragPath.endsWith('/' + artPath)) {
+    for (const [art_path, id] of aArtifactToId) {
+        if (art_path === aFragPath
+            || art_path.endsWith('/' + aFragPath)
+            || aFragPath.endsWith('/' + art_path)) {
             return id;
         }
     }
-    const fragBase = basename(fragPath);
-    for (const [artPath, id] of artifactToId) {
-        if (basename(artPath) === fragBase) return id;
+    const frag_base = basename(aFragPath);
+    for (const [art_path, id] of aArtifactToId) {
+        if (basename(art_path) === frag_base) return id;
     }
     return undefined;
 }

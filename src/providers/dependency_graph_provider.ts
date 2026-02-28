@@ -53,62 +53,62 @@ interface GraphEdge {
 export class DependencyGraphProvider implements vscode.WebviewViewProvider {
     public static readonly viewId = 'CMakeGraphDependencyGraph';
 
-    private view?: vscode.WebviewView;
-    private targets: Target[] = [];
-    private pendingUpdate = false;
+    private m_view?: vscode.WebviewView;
+    private m_targets: Target[] = [];
+    private m_pendingUpdate = false;
 
-    constructor(private readonly extensionUri: vscode.Uri) { }
+    constructor(private readonly m_extensionUri: vscode.Uri) { }
 
     // ---- WebviewViewProvider ----
 
     resolveWebviewView(
-        webviewView: vscode.WebviewView,
-        _context: vscode.WebviewViewResolveContext,
-        _token: vscode.CancellationToken,
+        aWebviewView: vscode.WebviewView,
+        aContext: vscode.WebviewViewResolveContext,
+        aToken: vscode.CancellationToken,
     ): void {
-        this.view = webviewView;
+        this.m_view = aWebviewView;
 
-        webviewView.webview.options = {
+        aWebviewView.webview.options = {
             enableScripts: true,
             localResourceRoots: [
-                vscode.Uri.joinPath(this.extensionUri, 'out'),
-                vscode.Uri.joinPath(this.extensionUri, 'dist'),
-                vscode.Uri.joinPath(this.extensionUri, 'medias'),
+                vscode.Uri.joinPath(this.m_extensionUri, 'out'),
+                vscode.Uri.joinPath(this.m_extensionUri, 'dist'),
+                vscode.Uri.joinPath(this.m_extensionUri, 'medias'),
             ],
         };
 
-        webviewView.webview.html = this.getHtml(webviewView.webview);
+        aWebviewView.webview.html = this.getHtml(aWebviewView.webview);
 
-        webviewView.webview.onDidReceiveMessage(msg => this.handleMessage(msg));
+        aWebviewView.webview.onDidReceiveMessage(aMsg => this.handleMessage(aMsg));
 
         // Send pending data if refresh() was called before the view opened
-        if (this.pendingUpdate) {
+        if (this.m_pendingUpdate) {
             this.sendGraphData();
-            this.pendingUpdate = false;
+            this.m_pendingUpdate = false;
         }
     }
 
     // ---- Public API ----
 
-    refresh(targets: Target[]): void {
-        this.targets = targets;
-        if (this.view) {
+    refresh(aTargets: Target[]): void {
+        this.m_targets = aTargets;
+        if (this.m_view) {
             this.sendGraphData();
         } else {
-            this.pendingUpdate = true;
+            this.m_pendingUpdate = true;
         }
     }
 
     toggleLayout(): void {
-        this.view?.webview.postMessage({ type: 'toggleLayout' });
+        this.m_view?.webview.postMessage({ type: 'toggleLayout' });
     }
 
     showSettings(): void {
-        this.view?.webview.postMessage({ type: 'showSettings' });
+        this.m_view?.webview.postMessage({ type: 'showSettings' });
     }
 
     screenshot(): void {
-        this.view?.webview.postMessage({ type: 'screenshot' });
+        this.m_view?.webview.postMessage({ type: 'screenshot' });
     }
 
     // ---- Data conversion ----
@@ -117,29 +117,29 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
         const config = vscode.workspace.getConfiguration('CMakeGraph');
 
         // Merge custom colors onto defaults
-        const customColors = config.get<Record<string, string>>('graphNodeColors', {});
-        const effectiveColors: Record<string, string> = { ...TARGET_COLORS };
-        for (const [type, color] of Object.entries(customColors)) {
-            if (color && type in effectiveColors) {
-                effectiveColors[type as keyof typeof effectiveColors] = color;
+        const custom_colors = config.get<Record<string, string>>('graphNodeColors', {});
+        const effective_colors: Record<string, string> = { ...TARGET_COLORS };
+        for (const [type, color] of Object.entries(custom_colors)) {
+            if (color && type in effective_colors) {
+                effective_colors[type as keyof typeof effective_colors] = color;
             }
         }
 
-        const filtered = this.targets.filter(t => t.type !== 'UTILITY');
-        const validIds = new Set(filtered.map(t => t.id));
+        const filtered = this.m_targets.filter(t => t.type !== 'UTILITY');
+        const valid_ids = new Set(filtered.map(t => t.id));
 
         const nodes: GraphNode[] = filtered.map(t => ({
             id: t.id,
             label: t.name,
             type: t.type,
-            color: effectiveColors[t.type] ?? TARGET_COLORS[t.type],
+            color: effective_colors[t.type] ?? TARGET_COLORS[t.type],
             shape: TARGET_SHAPES[t.type],
             sourcePath: t.paths.source,
         }));
 
         const edges: GraphEdge[] = filtered.flatMap(t =>
             (t.directLinks ?? [])
-                .filter(id => validIds.has(id))
+                .filter(id => valid_ids.has(id))
                 .map(id => ({ from: t.id, to: id })),
         );
 
@@ -162,13 +162,13 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
             settingsVisible: config.get<boolean>('graphSettingsVisible', false),
         };
 
-        this.view?.webview.postMessage({ type: 'update', nodes, edges, settings });
+        this.m_view?.webview.postMessage({ type: 'update', nodes, edges, settings });
     }
 
     // ---- Message handling ----
 
-    private handleMessage(msg: any): void {
-        switch (msg.type) {
+    private handleMessage(aMsg: any): void {
+        switch (aMsg.type) {
             case 'ready':
                 this.sendGraphData();
                 break;
@@ -177,36 +177,36 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
                 // Reveal in Project Outline (reuse existing revealDependency command)
                 vscode.commands.executeCommand('CMakeGraph.revealDependency', {
                     kind: 'dependency',
-                    target: { id: msg.targetId as string },
+                    target: { id: aMsg.targetId as string },
                 });
                 break;
             }
 
             case 'saveScreenshot': {
-                this.saveScreenshot(msg.dataUri as string);
+                this.saveScreenshot(aMsg.dataUri as string);
                 break;
             }
 
             case 'updateSetting': {
-                const key = msg.key as string;
-                const value = msg.value;
+                const key = aMsg.key as string;
+                const value = aMsg.value;
                 vscode.workspace.getConfiguration('CMakeGraph').update(key, value, vscode.ConfigurationTarget.Workspace);
                 break;
             }
         }
     }
 
-    private async saveScreenshot(dataUri: string): Promise<void> {
-        const workspaceName = vscode.workspace.name ?? 'project';
+    private async saveScreenshot(aDataUri: string): Promise<void> {
+        const workspace_name = vscode.workspace.name ?? 'project';
         const now = new Date();
         const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
-        const defaultName = `${workspaceName}_dependency_graph_${timestamp}.png`;
+        const default_name = `${workspace_name}_dependency_graph_${timestamp}.png`;
         const uri = await vscode.window.showSaveDialog({
-            defaultUri: vscode.Uri.file(defaultName),
+            defaultUri: vscode.Uri.file(default_name),
             filters: { 'PNG Image': ['png'] },
         });
         if (!uri) { return; }
-        const base64 = dataUri.replace(/^data:image\/png;base64,/, '');
+        const base64 = aDataUri.replace(/^data:image\/png;base64,/, '');
         const buffer = Buffer.from(base64, 'base64');
         await vscode.workspace.fs.writeFile(uri, buffer);
         vscode.window.showInformationMessage(`Screenshot saved to ${uri.fsPath}`);
@@ -214,13 +214,13 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
 
     // ---- HTML ----
 
-    private getHtml(webview: vscode.Webview): string {
+    private getHtml(aWebview: vscode.Webview): string {
         const nonce = getNonce();
-        const scriptUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this.extensionUri, 'out', 'webview', 'dependency_graph_webview.js'),
+        const script_uri = aWebview.asWebviewUri(
+            vscode.Uri.joinPath(this.m_extensionUri, 'out', 'webview', 'dependency_graph_webview.js'),
         );
-        const styleUri = webview.asWebviewUri(
-            vscode.Uri.joinPath(this.extensionUri, 'medias', 'css', 'dependency_graph.css'),
+        const style_uri = aWebview.asWebviewUri(
+            vscode.Uri.joinPath(this.m_extensionUri, 'medias', 'css', 'dependency_graph.css'),
         );
 
         return `<!DOCTYPE html>
@@ -229,11 +229,11 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
     <meta charset="UTF-8">
     <meta http-equiv="Content-Security-Policy"
           content="default-src 'none';
-                   style-src ${webview.cspSource} 'unsafe-inline';
+                   style-src ${aWebview.cspSource} 'unsafe-inline';
                    script-src 'nonce-${nonce}';
-                   img-src ${webview.cspSource} blob: data:;">
+                   img-src ${aWebview.cspSource} blob: data:;">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="${styleUri}">
+    <link rel="stylesheet" href="${style_uri}">
     <title>Dependency Graph</title>
 </head>
 <body>
@@ -244,7 +244,7 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
     <div id="graph-container" style="display:none"></div>
     <div id="empty-message">Waiting for CMake data\u2026</div>
     <div id="footer"></div>
-    <script nonce="${nonce}" src="${scriptUri}"></script>
+    <script nonce="${nonce}" src="${script_uri}"></script>
 </body>
 </html>`;
     }

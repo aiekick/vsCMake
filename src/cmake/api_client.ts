@@ -33,24 +33,24 @@ export interface CmakeReply {
 // ApiClient
 // ------------------------------------------------------------
 export class ApiClient {
-    private readonly queryDir: string;
-    private readonly replyDir: string;
+    private readonly m_queryDir: string;
+    private readonly m_replyDir: string;
 
     constructor(private readonly aBuildDir: string) {
         const api_root = path.join(aBuildDir, '.cmake', 'api', 'v1');
-        this.queryDir = path.join(api_root, 'query');
-        this.replyDir = path.join(api_root, 'reply');
+        this.m_queryDir = path.join(api_root, 'query');
+        this.m_replyDir = path.join(api_root, 'reply');
     }
 
     // Path to reply folder (useful for the watcher)
     get replyDirectory(): string {
-        return this.replyDir;
+        return this.m_replyDir;
     }
 
     // Checks that a reply already exists (configure already done)
     async hasReply(): Promise<boolean> {
         try {
-            const files = await fs.readdir(this.replyDir);
+            const files = await fs.readdir(this.m_replyDir);
             return files.some((f: string) => f.startsWith('index-'));
         } catch {
             return false;
@@ -60,49 +60,49 @@ export class ApiClient {
     // Writes query files to query/
     // To be called before the first cmake configure
     async writeQueries(): Promise<void> {
-        await fs.mkdir(this.queryDir, { recursive: true });
+        await fs.mkdir(this.m_queryDir, { recursive: true });
         await Promise.all(
-            QUERY_FILES.map(name =>
-                fs.writeFile(path.join(this.queryDir, name), '', { flag: 'w' })
+            QUERY_FILES.map(aName =>
+                fs.writeFile(path.join(this.m_queryDir, aName), '', { flag: 'w' })
             )
         );
     }
 
     // Loads the index (entry point for the entire reply)
     async readIndex(): Promise<Index> {
-        const files = await fs.readdir(this.replyDir);
-        const indexFile = files
+        const files = await fs.readdir(this.m_replyDir);
+        const index_file = files
             .filter((f: string) => f.startsWith('index-'))
             .sort()           // the most recent is last in lexicographic order
             .at(-1);
-        if (!indexFile) {
+        if (!index_file) {
             throw new Error(
-                `No index file found in ${this.replyDir}.\n` +
+                `No index file found in ${this.m_replyDir}.\n` +
                 `Have you run CMake configure?`
             );
         }
-        return this.readJson<Index>(indexFile);
+        return this.readJson<Index>(index_file);
     }
 
     // Loads everything at once
     async loadApiFiles(): Promise<CmakeReply> {
         const index = await this.readIndex();
-        const codemodelRef = this.findObject(index, 'codemodel');
-        const cacheRef = this.findObject(index, 'cache');
-        const filesRef = this.findObject(index, 'cmakeFiles');
-        const toolRef = this.findObjectOptional(index, 'toolchains');
-        const codemodel = await this.readJson<Codemodel>(codemodelRef.jsonFile);
+        const codemodel_ref = this.findObject(index, 'codemodel');
+        const cache_ref = this.findObject(index, 'cache');
+        const files_ref = this.findObject(index, 'cmakeFiles');
+        const tool_ref = this.findObjectOptional(index, 'toolchains');
+        const codemodel = await this.readJson<Codemodel>(codemodel_ref.jsonFile);
         const targets = await this.loadTargets(codemodel);
-        const cacheReply = await this.readJson<CacheReply>(cacheRef.jsonFile);
-        const cmakeFiles = await this.readJson<CmakeFilesReply>(filesRef.jsonFile);
-        const toolchains = toolRef
-            ? await this.readJson<ToolchainsReply>(toolRef.jsonFile)
+        const cache_reply = await this.readJson<CacheReply>(cache_ref.jsonFile);
+        const cmake_files = await this.readJson<CmakeFilesReply>(files_ref.jsonFile);
+        const toolchains = tool_ref
+            ? await this.readJson<ToolchainsReply>(tool_ref.jsonFile)
             : null;
         return {
             codemodel,
             targets,
-            cache: cacheReply.entries,
-            cmakeFiles,
+            cache: cache_reply.entries,
+            cmakeFiles: cmake_files,
             toolchains,
         };
     }
@@ -119,12 +119,12 @@ export class ApiClient {
     // Private
     // ------------------------------------------------------------
 
-    private async loadTargets(codemodel: Codemodel): Promise<Target[]> {
+    private async loadTargets(aCodemodel: Codemodel): Promise<Target[]> {
         // Deduplicate jsonFile (the same target can appear
         // in multiple configurations with the same file)
         const seen = new Set<string>();
         const refs: TargetRef[] = [];
-        for (const config of codemodel.configurations) {
+        for (const config of aCodemodel.configurations) {
             for (const ref of config.targets) {
                 if (!seen.has(ref.jsonFile)) {
                     seen.add(ref.jsonFile);
@@ -135,25 +135,25 @@ export class ApiClient {
         return Promise.all(refs.map(ref => this.readJson<Target>(ref.jsonFile)));
     }
 
-    private findObject(index: Index, kind: string) {
-        const obj = index.objects.find(o => o.kind === kind);
+    private findObject(aIndex: Index, aKind: string) {
+        const obj = aIndex.objects.find(o => o.kind === aKind);
         if (!obj) {
-            throw new Error(`CMake API object '${kind}' not found in index.`);
+            throw new Error(`CMake API object '${aKind}' not found in index.`);
         }
         return obj;
     }
 
-    private findObjectOptional(index: Index, kind: string) {
-        return index.objects.find(o => o.kind === kind) ?? null;
+    private findObjectOptional(aIndex: Index, aKind: string) {
+        return aIndex.objects.find(o => o.kind === aKind) ?? null;
     }
 
-    private async readJson<T>(filename: string): Promise<T> {
-        const fullPath = path.join(this.replyDir, filename);
+    private async readJson<T>(aFilename: string): Promise<T> {
+        const full_path = path.join(this.m_replyDir, aFilename);
         try {
-            const raw = await fs.readFile(fullPath, 'utf-8');
+            const raw = await fs.readFile(full_path, 'utf-8');
             return JSON.parse(raw) as T;
         } catch (err) {
-            throw new Error(`Unable to read ${fullPath}: ${(err as Error).message}`);
+            throw new Error(`Unable to read ${full_path}: ${(err as Error).message}`);
         }
     }
 }

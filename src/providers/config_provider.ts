@@ -15,57 +15,57 @@ type TreeNode = FilterNode | GroupNode | EntryNode;
 // ConfigProvider
 // ------------------------------------------------------------
 export class ConfigProvider implements vscode.TreeDataProvider<TreeNode> {
-    private readonly _onDidChangeTreeData = new vscode.EventEmitter<void>();
-    readonly onDidChangeTreeData: vscode.Event<void> = this._onDidChangeTreeData.event;
+    private readonly m_onDidChangeTreeData = new vscode.EventEmitter<void>();
+    readonly onDidChangeTreeData: vscode.Event<void> = this.m_onDidChangeTreeData.event;
 
-    private allEntries: CacheEntry[] = [];
-    private groups: GroupNode[] = [];
-    private filter = '';
+    private m_allEntries: CacheEntry[] = [];
+    private m_groups: GroupNode[] = [];
+    private m_filter = '';
 
-    refresh(entries: CacheEntry[]): void {
-        this.allEntries = entries;
+    refresh(aEntries: CacheEntry[]): void {
+        this.m_allEntries = aEntries;
         this.rebuildGroups();
     }
 
     clear(): void {
-        this.allEntries = [];
-        this.filter = '';
-        this.groups = [];
-        this._onDidChangeTreeData.fire();
+        this.m_allEntries = [];
+        this.m_filter = '';
+        this.m_groups = [];
+        this.m_onDidChangeTreeData.fire();
     }
 
     getGroups(): GroupNode[] {
-        return this.groups;
+        return this.m_groups;
     }
 
     // ------------------------------------------------------------
     // Filter
     // ------------------------------------------------------------
 
-    setFilter(pattern: string): void {
-        this.filter = pattern.toLowerCase();
+    setFilter(aPattern: string): void {
+        this.m_filter = aPattern.toLowerCase();
         this.rebuildGroups();
     }
 
     clearFilter(): void {
-        this.filter = '';
+        this.m_filter = '';
         this.rebuildGroups();
     }
 
     get currentFilter(): string {
-        return this.filter;
+        return this.m_filter;
     }
 
     get hasFilter(): boolean {
-        return this.filter.length > 0;
+        return this.m_filter.length > 0;
     }
 
     private rebuildGroups(): void {
-        let entries = this.allEntries;
+        let entries = this.m_allEntries;
 
         // Apply filter (case insensitive, on name + value + helpstring)
-        if (this.filter) {
-            const f = this.filter;
+        if (this.m_filter) {
+            const f = this.m_filter;
             entries = entries.filter(e =>
                 e.name.toLowerCase().includes(f) ||
                 e.value.toLowerCase().includes(f) ||
@@ -73,36 +73,36 @@ export class ConfigProvider implements vscode.TreeDataProvider<TreeNode> {
             );
         }
 
-        this.groups = this.buildGroups(entries);
-        this._onDidChangeTreeData.fire();
+        this.m_groups = this.buildGroups(entries);
+        this.m_onDidChangeTreeData.fire();
     }
 
     // ------------------------------------------------------------
     // TreeDataProvider
     // ------------------------------------------------------------
 
-    getTreeItem(node: TreeNode): vscode.TreeItem {
-        if (node.kind === 'filter') { return this.filterItem(); }
-        if (node.kind === 'group') { return this.groupItem(node); }
-        return this.entryItem(node);
+    getTreeItem(aNode: TreeNode): vscode.TreeItem {
+        if (aNode.kind === 'filter') { return this.filterItem(); }
+        if (aNode.kind === 'group') { return this.groupItem(aNode); }
+        return this.entryItem(aNode);
     }
 
-    getChildren(node?: TreeNode): TreeNode[] {
-        if (!node) {
+    getChildren(aNode?: TreeNode): TreeNode[] {
+        if (!aNode) {
             return [
                 { kind: 'filter' as const },
-                ...this.groups,
+                ...this.m_groups,
             ];
         }
-        if (node.kind === 'group') {
-            return node.entries.map(e => ({ kind: 'entry' as const, entry: e }));
+        if (aNode.kind === 'group') {
+            return aNode.entries.map(e => ({ kind: 'entry' as const, entry: e }));
         }
         return [];
     }
 
-    getParent(node: TreeNode): TreeNode | null {
-        if (node.kind === 'entry') {
-            return this.groups.find(g => g.entries.includes(node.entry)) ?? null;
+    getParent(aNode: TreeNode): TreeNode | null {
+        if (aNode.kind === 'entry') {
+            return this.m_groups.find(g => g.entries.includes(aNode.entry)) ?? null;
         }
         return null;
     }
@@ -111,10 +111,10 @@ export class ConfigProvider implements vscode.TreeDataProvider<TreeNode> {
     // Groups
     // ------------------------------------------------------------
 
-    private buildGroups(entries: CacheEntry[]): GroupNode[] {
+    private buildGroups(aEntries: CacheEntry[]): GroupNode[] {
         const map = new Map<string, CacheEntry[]>();
 
-        for (const entry of entries) {
+        for (const entry of aEntries) {
             const prefix = this.extractPrefix(entry.name);
             if (!map.has(prefix)) { map.set(prefix, []); }
             map.get(prefix)!.push(entry);
@@ -129,9 +129,9 @@ export class ConfigProvider implements vscode.TreeDataProvider<TreeNode> {
         return sorted.map(([name, entries]) => ({ kind: 'group' as const, name, entries }));
     }
 
-    private extractPrefix(name: string): string {
-        const idx = name.indexOf('_');
-        return idx > 0 ? name.substring(0, idx) : 'OTHER';
+    private extractPrefix(aName: string): string {
+        const idx = aName.indexOf('_');
+        return idx > 0 ? aName.substring(0, idx) : 'OTHER';
     }
 
     // ------------------------------------------------------------
@@ -139,12 +139,12 @@ export class ConfigProvider implements vscode.TreeDataProvider<TreeNode> {
     // ------------------------------------------------------------
 
     private filterItem(): vscode.TreeItem {
-        const label = this.filter
-            ? `Filter: ${this.filter}`
+        const label = this.m_filter
+            ? `Filter: ${this.m_filter}`
             : 'Filter: (none)';
         const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
         item.iconPath = new vscode.ThemeIcon('search');
-        item.contextValue = this.filter ? 'cmakeCacheFilterActive' : 'cmakeCacheFilter';
+        item.contextValue = this.m_filter ? 'cmakeCacheFilterActive' : 'cmakeCacheFilter';
         item.command = {
             command: 'CMakeGraph.filterConfig',
             title: 'Filter',
@@ -152,20 +152,20 @@ export class ConfigProvider implements vscode.TreeDataProvider<TreeNode> {
         return item;
     }
 
-    private groupItem(node: GroupNode): vscode.TreeItem {
+    private groupItem(aNode: GroupNode): vscode.TreeItem {
         // When a filter is active, expand groups by default
-        const state = this.filter
+        const state = this.m_filter
             ? vscode.TreeItemCollapsibleState.Expanded
             : vscode.TreeItemCollapsibleState.Collapsed;
-        const item = new vscode.TreeItem(node.name, state);
+        const item = new vscode.TreeItem(aNode.name, state);
         item.iconPath = new vscode.ThemeIcon('folder');
-        item.description = `${node.entries.length}`;
+        item.description = `${aNode.entries.length}`;
         item.contextValue = 'cmakeCacheGroup';
         return item;
     }
 
-    private entryItem(node: EntryNode): vscode.TreeItem {
-        const e = node.entry;
+    private entryItem(aNode: EntryNode): vscode.TreeItem {
+        const e = aNode.entry;
         const item = new vscode.TreeItem(e.name, vscode.TreeItemCollapsibleState.None);
 
         item.description = e.value;
@@ -176,7 +176,7 @@ export class ConfigProvider implements vscode.TreeDataProvider<TreeNode> {
         item.command = {
             command: 'CMakeGraph.editCacheEntry',
             title: 'Edit',
-            arguments: [node.entry],
+            arguments: [aNode.entry],
         };
 
         return item;
@@ -186,18 +186,18 @@ export class ConfigProvider implements vscode.TreeDataProvider<TreeNode> {
     // Tooltip
     // ------------------------------------------------------------
 
-    private entryTooltip(e: CacheEntry): vscode.MarkdownString {
+    private entryTooltip(aEntry: CacheEntry): vscode.MarkdownString {
         const md = new vscode.MarkdownString();
-        md.appendMarkdown(`**${e.name}** \`${e.type}\`\n\n`);
+        md.appendMarkdown(`**${aEntry.name}** \`${aEntry.type}\`\n\n`);
 
-        if (e.properties.HELPSTRING) {
-            md.appendMarkdown(`${e.properties.HELPSTRING}\n\n`);
+        if (aEntry.properties.HELPSTRING) {
+            md.appendMarkdown(`${aEntry.properties.HELPSTRING}\n\n`);
         }
 
-        md.appendMarkdown(`Value: \`${e.value}\`\n\n`);
+        md.appendMarkdown(`Value: \`${aEntry.value}\`\n\n`);
 
-        if (e.properties.STRINGS) {
-            const values = e.properties.STRINGS.split(';');
+        if (aEntry.properties.STRINGS) {
+            const values = aEntry.properties.STRINGS.split(';');
             md.appendMarkdown(`Possible values: ${values.map(v => `\`${v}\``).join(', ')}\n`);
         }
 
@@ -208,8 +208,8 @@ export class ConfigProvider implements vscode.TreeDataProvider<TreeNode> {
     // Icons by type
     // ------------------------------------------------------------
 
-    private iconForType(type: CacheEntryType): string {
-        switch (type) {
+    private iconForType(aType: CacheEntryType): string {
+        switch (aType) {
             case 'BOOL': return 'symbol-boolean';
             case 'FILEPATH': return 'file';
             case 'PATH': return 'folder';
