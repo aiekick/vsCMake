@@ -216,7 +216,7 @@ async function initBuildDir(dir: string, context: vscode.ExtensionContext): Prom
 async function loadReply(): Promise<void> {
     if (!apiClient) { return; }
     try {
-        lastReply = await apiClient.loadAll();
+        lastReply = await apiClient.loadApiFiles();
 
         // compute direct links of targets
         // debugDirectLinks(lastReply);
@@ -822,7 +822,7 @@ function extractNodeText(node: any): string {
         case 'include': return node.path ?? '';
         case 'flag': return node.text ?? '';
         case 'library': return node.fragment ?? '';
-        case 'dependency': return node.target?.name ?? '';
+        case 'directLink': return node.target?.name ?? '';
         case 'cmakefile': return node.path ?? '';
         case 'source': return node.source?.path ?? '';
         case 'rootFile': return node.filePath ?? '';
@@ -834,7 +834,7 @@ function extractNodeText(node: any): string {
 async function cmdRevealDependency(node: unknown): Promise<void> {
     if (!node || !outlineProvider || !outlineView) { return; }
     const dep = node as { kind: string; target?: { id: string } };
-    if (dep.kind !== 'dependency' || !dep.target) { return; }
+    if (dep.kind !== 'directLink' || !dep.target) { return; }
     const targetNode = outlineProvider.findTargetNode(dep.target.id);
     if (!targetNode) {
         vscode.window.showWarningMessage('CMakeGraph: target not found in outline.');

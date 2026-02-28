@@ -1,5 +1,5 @@
 {
-  "name": "cmake-graph",
+  "name": "cmakegraph",
   "displayName": "Cmake Graph",
   "description": "CMake dependency explorer",
   "version": "0.1.2",
@@ -613,12 +613,12 @@
         },
         {
           "command": "CMakeGraph.copyToClipboard",
-          "when": "view == CMakeGraphOutline && viewItem == outlineDependency",
+          "when": "view == CMakeGraphOutline && viewItem == outlineDirectLink",
           "group": "1_copy@1"
         },
         {
           "command": "CMakeGraph.revealDependency",
-          "when": "view == CMakeGraphOutline && viewItem == outlineDependency",
+          "when": "view == CMakeGraphOutline && viewItem == outlineDirectLink",
           "group": "2_nav@1"
         },
         {
@@ -661,16 +661,16 @@
     ],
     "languages": [
       {
-        "id": "vscmake-output",
+        "id": "cmakegraph-output",
         "mimetypes": [
-          "text/x-vscmake-output"
+          "text/x-cmakegraph-output"
         ]
       }
     ],
     "grammars": [
       {
-        "language": "vscmake-output",
-        "scopeName": "source.vscmake-output",
+        "language": "cmakegraph-output",
+        "scopeName": "source.cmakegraph-output",
         "path": "./syntaxes/output_coloration.tmLanguage.json"
       }
     ]
@@ -683,8 +683,6 @@
     "watch": "tsc -watch -p ./"
   },
   "dependencies": {
-    "vis-data": "^8.0.3",
-    "vis-network": "^10.0.2",
     "vscode-cmake-tools": "^1.5.0"
   },
   "devDependencies": {

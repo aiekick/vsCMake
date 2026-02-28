@@ -10,7 +10,7 @@ import {
 // Nodes
 // ------------------------------------------------------------
 type SectionId = 'sources' | 'cmakeExtras';
-type ExtrasId = 'includes' | 'compileFlags' | 'linkFlags' | 'libraries' | 'dependencies' | 'directLinks';
+type ExtrasId = 'includes' | 'compileFlags' | 'linkFlags' | 'libraries' | 'directLinks';
 
 interface ProjectNode { kind: 'project'; name: string; }
 interface RootFileNode { kind: 'rootFile'; target: Target | null; label: string; filePath: string; }
@@ -24,7 +24,6 @@ interface IncludeNode { kind: 'include'; target: Target; path: string; isSystem:
 interface FlagNode { kind: 'flag'; target: Target; text: string; }
 interface CmakeFileNode { kind: 'cmakefile'; target: Target; path: string; }
 interface VirtualFolderNode { kind: 'virtualFolder'; name: string; fullPath: string; sources: { source: Source; compileGroup?: CompileGroup }[]; subFolders: VirtualFolderNode[]; target: Target; }
-interface DepNode { kind: 'dependency'; target: Target; }
 interface DirectLinkNode { kind: 'directLink'; target: Target; }
 interface LibNode { kind: 'library'; target: Target; fragment: string; role: string; }
 interface OutlineFilterNode { kind: 'outlineFilter'; }
@@ -34,7 +33,7 @@ type TreeNode =
     | RootFileNode | FolderNode | TargetNode | TargetCmakeNode
     | SectionNode | ExtrasGroupNode
     | SourceNode | IncludeNode | FlagNode | CmakeFileNode
-    | VirtualFolderNode | DepNode | DirectLinkNode | LibNode;
+    | VirtualFolderNode | DirectLinkNode | LibNode;
 
 const TARGET_ICONS: Record<TargetType, string> = {
     EXECUTABLE: 'run',
@@ -143,7 +142,6 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
             case 'flag': return this.flagItem(node);
             case 'cmakefile': return this.cmakeFileItem(node);
             case 'virtualFolder': return this.virtualFolderItem(node);
-            case 'dependency': return this.depItem(node);
             case 'directLink': return this.directLinkItem(node);
             case 'library': return this.libItem(node);
         }
@@ -461,7 +459,6 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
             { id: 'compileFlags', label: 'Compile Flags', icon: 'symbol-operator', show: this.hasCompileFlags(target) },
             { id: 'linkFlags', label: 'Link Flags', icon: 'link', show: this.hasLinkFlags(target) },
             { id: 'libraries', label: 'Libraries', icon: 'references', show: this.hasLibraries(target) },
-            //   { id: 'dependencies', label: 'Dependencies', icon: 'type-hierarchy', show: (target.dependencies?.length ?? 0) > 0 },
             { id: 'directLinks', label: 'Direct Links', icon: 'type-hierarchy', show: (target.directLinks?.length ?? 0) > 0 },
         ];
         for (const g of extras) {
@@ -479,7 +476,6 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
             case 'compileFlags': return this.compileFlagNodes(node.target);
             case 'linkFlags': return this.linkFlagNodes(node.target);
             case 'libraries': return this.libraryNodes(node.target);
-            case 'dependencies': return this.dependencyNodes(node.target);
             case 'directLinks': return this.directLinkNodes(node.target);
         }
     }
@@ -542,17 +538,6 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
             .filter(f => f.role === 'libraries' || f.role === 'libraryPath')
             .map(f => ({ kind: 'library' as const, target, fragment: f.fragment.trim(), role: f.role }))
             .filter(n => n.fragment.length > 0);
-    }
-
-    // ------------------------------------------------------------
-    // Dependencies
-    // ------------------------------------------------------------
-
-    private dependencyNodes(target: Target): DepNode[] {
-        return (target.dependencies ?? [])
-            .map(dep => this.targetMap.get(dep.id))
-            .filter((t): t is Target => t !== undefined)
-            .map(t => ({ kind: 'dependency' as const, target: t }));
     }
 
     // ------------------------------------------------------------
@@ -713,16 +698,6 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
         item.resourceUri = uri;
         item.command = { command: 'CMakeGraph.openFile', title: 'Open', arguments: [uri] };
         item.contextValue = 'outlineCmakeFile';
-        return item;
-    }
-
-    private depItem(node: DepNode): vscode.TreeItem {
-        const t = node.target;
-        const item = new vscode.TreeItem(t.name, vscode.TreeItemCollapsibleState.None);
-        item.iconPath = new vscode.ThemeIcon(TARGET_ICONS[t.type] ?? 'symbol-method');
-        item.description = t.type;
-        item.tooltip = `Dependency: ${t.name} (${t.type})`;
-        item.contextValue = 'outlineDependency';
         return item;
     }
 

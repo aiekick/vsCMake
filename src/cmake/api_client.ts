@@ -36,10 +36,10 @@ export class ApiClient {
     private readonly queryDir: string;
     private readonly replyDir: string;
 
-    constructor(private readonly buildDir: string) {
-        const apiRoot = path.join(buildDir, '.cmake', 'api', 'v1');
-        this.queryDir = path.join(apiRoot, 'query');
-        this.replyDir = path.join(apiRoot, 'reply');
+    constructor(private readonly aBuildDir: string) {
+        const api_root = path.join(aBuildDir, '.cmake', 'api', 'v1');
+        this.queryDir = path.join(api_root, 'query');
+        this.replyDir = path.join(api_root, 'reply');
     }
 
     // Path to reply folder (useful for the watcher)
@@ -75,38 +75,29 @@ export class ApiClient {
             .filter((f: string) => f.startsWith('index-'))
             .sort()           // the most recent is last in lexicographic order
             .at(-1);
-
         if (!indexFile) {
             throw new Error(
                 `No index file found in ${this.replyDir}.\n` +
                 `Have you run CMake configure?`
             );
         }
-
         return this.readJson<Index>(indexFile);
     }
 
     // Loads everything at once
-    async loadAll(): Promise<CmakeReply> {
+    async loadApiFiles(): Promise<CmakeReply> {
         const index = await this.readIndex();
-
         const codemodelRef = this.findObject(index, 'codemodel');
         const cacheRef = this.findObject(index, 'cache');
         const filesRef = this.findObject(index, 'cmakeFiles');
         const toolRef = this.findObjectOptional(index, 'toolchains');
-
         const codemodel = await this.readJson<Codemodel>(codemodelRef.jsonFile);
-
-        // Load all targets in parallel
         const targets = await this.loadTargets(codemodel);
-
         const cacheReply = await this.readJson<CacheReply>(cacheRef.jsonFile);
         const cmakeFiles = await this.readJson<CmakeFilesReply>(filesRef.jsonFile);
-
         const toolchains = toolRef
             ? await this.readJson<ToolchainsReply>(toolRef.jsonFile)
             : null;
-
         return {
             codemodel,
             targets,
@@ -133,7 +124,6 @@ export class ApiClient {
         // in multiple configurations with the same file)
         const seen = new Set<string>();
         const refs: TargetRef[] = [];
-
         for (const config of codemodel.configurations) {
             for (const ref of config.targets) {
                 if (!seen.has(ref.jsonFile)) {
@@ -142,7 +132,6 @@ export class ApiClient {
                 }
             }
         }
-
         return Promise.all(refs.map(ref => this.readJson<Target>(ref.jsonFile)));
     }
 

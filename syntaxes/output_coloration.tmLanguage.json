@@ -1,7 +1,7 @@
 {
     "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
     "name": "CMakeGraph Output",
-    "scopeName": "source.vscmake-output",
+    "scopeName": "source.cmakegraph-output",
     "patterns": [
         {
             "include": "#build-line"
@@ -46,60 +46,60 @@
             "match": "^(\\[\\d+/\\d+\\])\\s+(\\S+)\\s+(C|CXX|CUDA|Fortran|ASM|OBJC|OBJCXX)\\s+(.*)$",
             "captures": {
                 "1": {
-                    "name": "constant.numeric.progress.vscmake"
+                    "name": "constant.numeric.progress.cmakegraph"
                 },
                 "2": {
-                    "name": "keyword.operator.action.vscmake"
+                    "name": "keyword.operator.action.cmakegraph"
                 },
                 "3": {
-                    "name": "entity.name.type.language.vscmake"
+                    "name": "entity.name.type.language.cmakegraph"
                 },
                 "4": {
-                    "name": "string.unquoted.filepath.vscmake"
+                    "name": "string.unquoted.filepath.cmakegraph"
                 }
             }
         },
         "command-line": {
             "comment": "Executed command line (> cmake ...)",
             "match": "^>\\s+.*$",
-            "name": "markup.bold.command.vscmake"
+            "name": "markup.bold.command.cmakegraph"
         },
         "success": {
             "comment": "Success messages",
             "match": "^(✓.*|.*\\b(?:Build complete|Succeeded|Built target\\b|Linking\\b|100% tests passed).*)$",
-            "name": "string.success.vscmake"
+            "name": "string.success.cmakegraph"
         },
         "progress": {
             "comment": "Progress [xx%]",
             "match": "\\[\\s*\\d+%\\]",
-            "name": "constant.numeric.progress.vscmake"
+            "name": "constant.numeric.progress.cmakegraph"
         },
         "error": {
             "patterns": [
                 {
                     "comment": "CMake Error / generic errors",
                     "match": "^.*\\b(?:CMake Error|FAILED|fatal error|error [A-Z]+\\d+)\\b.*$",
-                    "name": "invalid.illegal.error.vscmake"
+                    "name": "invalid.illegal.error.cmakegraph"
                 },
                 {
                     "comment": "Line ✗ failure",
                     "match": "^✗.*$",
-                    "name": "invalid.illegal.error.vscmake"
+                    "name": "invalid.illegal.error.cmakegraph"
                 },
                 {
                     "comment": "Keyword error standalone (case insensitive)",
                     "match": "(?i)\\berror\\b",
-                    "name": "invalid.illegal.error-keyword.vscmake"
+                    "name": "invalid.illegal.error-keyword.cmakegraph"
                 },
                 {
                     "comment": "make/ninja failures",
                     "match": "^.*(?:make\\[\\d+\\]: \\*\\*\\*|FAILED:).*$",
-                    "name": "invalid.illegal.error.vscmake"
+                    "name": "invalid.illegal.error.cmakegraph"
                 },
                 {
                     "comment": "MSVC error codes (C2065, LNK2019, etc.)",
                     "match": "\\berror [A-Z]+\\d+:",
-                    "name": "invalid.illegal.error.vscmake"
+                    "name": "invalid.illegal.error.cmakegraph"
                 }
             ]
         },
@@ -108,44 +108,44 @@
                 {
                     "comment": "CMake Warning / compiler warnings",
                     "match": "^.*\\b(?:CMake Warning|CMake Deprecation Warning)\\b.*$",
-                    "name": "markup.changed.warning.vscmake"
+                    "name": "markup.changed.warning.cmakegraph"
                 },
                 {
                     "comment": "Keyword warning standalone (case insensitive)",
                     "match": "(?i)\\bwarning\\b",
-                    "name": "markup.changed.warning-keyword.vscmake"
+                    "name": "markup.changed.warning-keyword.cmakegraph"
                 },
                 {
                     "comment": "MSVC warning codes (C4996, etc.)",
                     "match": "\\bwarning [A-Z]+\\d+:",
-                    "name": "markup.changed.warning.vscmake"
+                    "name": "markup.changed.warning.cmakegraph"
                 }
             ]
         },
         "note": {
             "comment": "Compiler notes",
             "match": "(?i)\\bnote:\\b",
-            "name": "comment.note.vscmake"
+            "name": "comment.note.cmakegraph"
         },
         "cmake-target": {
             "comment": "Target names in build messages",
             "match": "(?<=Built target |Linking [A-Z]+ (?:static |shared )?library |Linking [A-Z]+ executable )\\S+",
-            "name": "entity.name.function.target.vscmake"
+            "name": "entity.name.function.target.cmakegraph"
         },
         "file-path": {
             "comment": "File paths with line number (file.cpp:42:)",
             "match": "(?:[A-Za-z]:)?[\\w./\\\\-]+\\.[a-zA-Z]+(?::\\d+(?::\\d+)?)?(?=:)",
-            "name": "string.unquoted.filepath.vscmake"
+            "name": "string.unquoted.filepath.cmakegraph"
         },
         "number": {
             "comment": "Numbers (return codes, etc.)",
             "match": "(?<=code )\\d+",
-            "name": "constant.numeric.vscmake"
+            "name": "constant.numeric.cmakegraph"
         },
         "cancelled": {
             "comment": "Cancellation line",
             "match": "^⊘.*$",
-            "name": "markup.changed.cancelled.vscmake"
+            "name": "markup.changed.cancelled.cmakegraph"
         }
     }
 }
