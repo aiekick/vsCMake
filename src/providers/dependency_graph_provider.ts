@@ -51,7 +51,7 @@ interface GraphEdge {
 // DependencyGraphProvider
 // ------------------------------------------------------------
 export class DependencyGraphProvider implements vscode.WebviewViewProvider {
-    public static readonly viewId = 'vsCMakeDependencyGraph';
+    public static readonly viewId = 'CMakeGraphDependencyGraph';
 
     private view?: vscode.WebviewView;
     private targets: Target[] = [];
@@ -114,7 +114,7 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
     // ---- Data conversion ----
 
     private sendGraphData(): void {
-        const config = vscode.workspace.getConfiguration('vsCMake');
+        const config = vscode.workspace.getConfiguration('CMakeGraph');
 
         // Merge custom colors onto defaults
         const customColors = config.get<Record<string, string>>('graphNodeColors', {});
@@ -175,7 +175,7 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
 
             case 'nodeClick': {
                 // Reveal in Project Outline (reuse existing revealDependency command)
-                vscode.commands.executeCommand('vsCMake.revealDependency', {
+                vscode.commands.executeCommand('CMakeGraph.revealDependency', {
                     kind: 'dependency',
                     target: { id: msg.targetId as string },
                 });
@@ -190,7 +190,7 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
             case 'updateSetting': {
                 const key = msg.key as string;
                 const value = msg.value;
-                vscode.workspace.getConfiguration('vsCMake').update(key, value, vscode.ConfigurationTarget.Workspace);
+                vscode.workspace.getConfiguration('CMakeGraph').update(key, value, vscode.ConfigurationTarget.Workspace);
                 break;
             }
         }

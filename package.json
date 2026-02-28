@@ -1,8 +1,8 @@
 {
-  "name": "vscmake",
-  "displayName": "vsCMake",
-  "description": "CMake build explorer via CMake file Api. Build, test and browse your CMake projects directly from VSCode.",
-  "version": "0.1.1",
+  "name": "cmake-graph",
+  "displayName": "Cmake Graph",
+  "description": "CMake dependency explorer",
+  "version": "0.1.2",
   "publisher": "aiekick",
   "engines": {
     "vscode": "^1.80.0"
@@ -10,7 +10,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/aiekick/vsCMake"
+    "url": "https://github.com/aiekick/CMakeGraph"
   },
   "categories": [
     "Other"
@@ -21,44 +21,44 @@
   ],
   "contributes": {
     "configuration": {
-      "title": "vsCMake",
+      "title": "Cmake Graph",
       "properties": {
-        "vsCMake.buildDir": {
+        "CMakeGraph.buildDir": {
           "type": "string",
           "default": "${workspaceFolder}/build",
           "description": "Path to the CMake build folder"
         },
-        "vsCMake.cmakePath": {
+        "CMakeGraph.cmakePath": {
           "type": "string",
           "default": "cmake",
           "description": "Path to the cmake executable"
         },
-        "vsCMake.ctestPath": {
+        "CMakeGraph.ctestPath": {
           "type": "string",
           "default": "ctest",
           "description": "Path to the ctest executable"
         },
-        "vsCMake.cpackPath": {
+        "CMakeGraph.cpackPath": {
           "type": "string",
           "default": "cpack",
           "description": "Path to the cpack executable"
         },
-        "vsCMake.clearOutputBeforeRun": {
+        "CMakeGraph.clearOutputBeforeRun": {
           "type": "boolean",
           "default": true,
           "description": "Clear output before each CMake command"
         },
-        "vsCMake.defaultJobs": {
+        "CMakeGraph.defaultJobs": {
           "type": "integer",
           "default": 0,
           "description": "Default number of jobs (0 = let CMake/CTest decide)"
         },
-        "vsCMake.colorizeOutput": {
+        "CMakeGraph.colorizeOutput": {
           "type": "boolean",
           "default": true,
-          "description": "Enable syntax highlighting in the vsCMake output panel"
+          "description": "Enable syntax highlighting in the CMakeGraph output panel"
         },
-        "vsCMake.graphEdgeDirection": {
+        "CMakeGraph.graphEdgeDirection": {
           "type": "string",
           "enum": [
             "dependency",
@@ -67,77 +67,87 @@
           "default": "dependency",
           "description": "Edge arrow direction: toward dependency or inverse"
         },
-        "vsCMake.graphEdgeStyle": {
+        "CMakeGraph.graphEdgeStyle": {
           "type": "string",
-          "enum": ["tapered", "chevrons", "line"],
+          "enum": [
+            "tapered",
+            "chevrons",
+            "line"
+          ],
           "default": "tapered",
           "description": "Edge rendering style in the dependency graph"
         },
-        "vsCMake.graphTaperedWidth": {
+        "CMakeGraph.graphTaperedWidth": {
           "type": "number",
           "default": 1.0,
           "minimum": 0.1,
           "maximum": 5.0,
           "description": "Width multiplier for tapered edges"
         },
-        "vsCMake.graphNodeColors": {
+        "CMakeGraph.graphNodeColors": {
           "type": "object",
           "default": {},
           "description": "Custom node colors by target type (e.g. {\"EXECUTABLE\": \"#FF0000\"})"
         },
-        "vsCMake.graphSimRepulsion": {
+        "CMakeGraph.graphSimRepulsion": {
           "type": "number",
           "default": 50000
         },
-        "vsCMake.graphSimAttraction": {
+        "CMakeGraph.graphSimAttraction": {
           "type": "number",
           "default": 0.1
         },
-        "vsCMake.graphSimGravity": {
+        "CMakeGraph.graphSimGravity": {
           "type": "number",
           "default": 0.001
         },
-        "vsCMake.graphSimLinkLength": {
+        "CMakeGraph.graphSimLinkLength": {
           "type": "number",
           "default": 0.1
         },
-        "vsCMake.graphSimMinDistance": {
+        "CMakeGraph.graphSimMinDistance": {
           "type": "number",
           "default": 5000
         },
-        "vsCMake.graphSimStepsPerFrame": {
+        "CMakeGraph.graphSimStepsPerFrame": {
           "type": "integer",
           "default": 5
         },
-        "vsCMake.graphSimThreshold": {
+        "CMakeGraph.graphSimThreshold": {
           "type": "number",
           "default": 0.1
         },
-        "vsCMake.graphSimDamping": {
+        "CMakeGraph.graphSimDamping": {
           "type": "number",
           "default": 0.85
         },
-        "vsCMake.graphMinimap": {
+        "CMakeGraph.graphMinimap": {
           "type": "boolean",
           "default": true,
           "description": "Show minimap on the dependency graph"
         },
-        "vsCMake.graphAutoPauseDrag": {
+        "CMakeGraph.graphAutoPauseDrag": {
           "type": "boolean",
           "default": false,
           "description": "Auto-pause simulation during node drag"
         },
-        "vsCMake.graphSimEnabled": {
+        "CMakeGraph.graphSimEnabled": {
           "type": "boolean",
           "default": true,
           "description": "Enable force simulation on the dependency graph"
         },
-        "vsCMake.graphSettingsCollapse": {
+        "CMakeGraph.graphSettingsCollapse": {
           "type": "object",
-          "default": { "edges": false, "colors": true, "simulation": true, "display": false, "controls": false },
+          "default": {
+            "edges": false,
+            "colors": true,
+            "simulation": true,
+            "display": false,
+            "controls": false
+          },
           "description": "Collapsed state of settings sections (true = collapsed)"
         },
-        "vsCMake.graphSettingsVisible": {
+        "CMakeGraph.graphSettingsVisible": {
           "type": "boolean",
           "default": false,
           "description": "Whether the settings panel is open"
@@ -147,31 +157,31 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "vsCMake",
-          "title": "vsCMake",
+          "id": "CMakeGraph",
+          "title": "CMakeGraph",
           "icon": "medias/icon.svg"
         }
       ]
     },
     "views": {
-      "vsCMake": [
+      "CMakeGraph": [
         {
-          "id": "vsCMakeOutline",
+          "id": "CMakeGraphOutline",
           "name": "Project Outline",
           "icon": "$(checklist)"
         },
         {
-          "id": "vsCMakeConfig",
+          "id": "CMakeGraphConfig",
           "name": "Configuration",
           "icon": "$(tools)"
         },
         {
-          "id": "vsCMakeImpacted",
+          "id": "CMakeGraphImpacted",
           "name": "Impacted Targets",
           "icon": "$(target)"
         },
         {
-          "id": "vsCMakeDependencyGraph",
+          "id": "CMakeGraphDependencyGraph",
           "name": "Dependency Graph",
           "type": "webview"
         }
@@ -179,229 +189,229 @@
     },
     "commands": [
       {
-        "command": "vsCMake.cancelTask",
+        "command": "CMakeGraph.cancelTask",
         "title": "Cancel running task",
         "category": "CMake",
         "icon": "$(stop-circle)"
       },
       {
-        "command": "vsCMake.selectBuildDir",
+        "command": "CMakeGraph.selectBuildDir",
         "title": "Select build folder",
         "category": "CMake",
         "icon": "$(folder-opened)"
       },
       {
-        "command": "vsCMake.selectConfig",
+        "command": "CMakeGraph.selectConfig",
         "title": "Select configuration",
         "category": "CMake",
         "icon": "$(symbol-interface)"
       },
       {
-        "command": "vsCMake.build",
+        "command": "CMakeGraph.build",
         "title": "Build",
         "category": "CMake",
         "icon": "$(build)"
       },
       {
-        "command": "vsCMake.buildTarget",
+        "command": "CMakeGraph.buildTarget",
         "title": "Build target",
         "category": "CMake",
         "icon": "$(build)"
       },
       {
-        "command": "vsCMake.rebuildTarget",
+        "command": "CMakeGraph.rebuildTarget",
         "title": "Rebuild target (clean + build)",
         "category": "CMake",
         "icon": "$(sync)"
       },
       {
-        "command": "vsCMake.clean",
+        "command": "CMakeGraph.clean",
         "title": "Clean",
         "category": "CMake",
         "icon": "$(trash)"
       },
       {
-        "command": "vsCMake.test",
+        "command": "CMakeGraph.test",
         "title": "Test",
         "category": "CMake",
         "icon": "$(beaker)"
       },
       {
-        "command": "vsCMake.refresh",
+        "command": "CMakeGraph.refresh",
         "title": "Refresh all",
         "category": "CMake",
         "icon": "$(refresh)"
       },
       {
-        "command": "vsCMake.refreshOutline",
+        "command": "CMakeGraph.refreshOutline",
         "title": "Refresh",
         "category": "CMake",
         "icon": "$(refresh)"
       },
       {
-        "command": "vsCMake.refreshConfig",
+        "command": "CMakeGraph.refreshConfig",
         "title": "Refresh",
         "category": "CMake",
         "icon": "$(refresh)"
       },
       {
-        "command": "vsCMake.refreshImpacted",
+        "command": "CMakeGraph.refreshImpacted",
         "title": "Refresh",
         "category": "CMake",
         "icon": "$(refresh)"
       },
       {
-        "command": "vsCMake.filterConfig",
+        "command": "CMakeGraph.filterConfig",
         "title": "Filter variables",
         "category": "CMake",
         "icon": "$(search)"
       },
       {
-        "command": "vsCMake.clearFilterConfig",
+        "command": "CMakeGraph.clearFilterConfig",
         "title": "Clear filter",
         "category": "CMake",
         "icon": "$(clear-all)"
       },
       {
-        "command": "vsCMake.expandAllConfig",
+        "command": "CMakeGraph.expandAllConfig",
         "title": "Expand all",
         "category": "CMake",
         "icon": "$(expand-all)"
       },
       {
-        "command": "vsCMake.collapseAllConfig",
+        "command": "CMakeGraph.collapseAllConfig",
         "title": "Collapse all",
         "category": "CMake",
         "icon": "$(collapse-all)"
       },
       {
-        "command": "vsCMake.editCacheEntry",
+        "command": "CMakeGraph.editCacheEntry",
         "title": "Edit variable",
         "category": "CMake",
         "icon": "$(edit)"
       },
       {
-        "command": "vsCMake.openFile",
+        "command": "CMakeGraph.openFile",
         "title": "Open file",
         "category": "CMake",
         "icon": "$(go-to-file)"
       },
       {
-        "command": "vsCMake.openLocation",
+        "command": "CMakeGraph.openLocation",
         "title": "Go to definition",
         "category": "CMake",
         "icon": "$(go-to-file)"
       },
       {
-        "command": "vsCMake.copyToClipboard",
+        "command": "CMakeGraph.copyToClipboard",
         "title": "Copy to clipboard",
         "category": "CMake",
         "icon": "$(clippy)"
       },
       {
-        "command": "vsCMake.copySectionToClipboard",
+        "command": "CMakeGraph.copySectionToClipboard",
         "title": "Copy entire section",
         "category": "CMake",
         "icon": "$(clippy)"
       },
       {
-        "command": "vsCMake.revealDependency",
+        "command": "CMakeGraph.revealDependency",
         "title": "Show in outline",
         "category": "CMake",
         "icon": "$(eye)"
       },
       {
-        "command": "vsCMake.openSettings",
+        "command": "CMakeGraph.openSettings",
         "title": "Open the extension settings",
         "category": "CMake",
         "icon": "$(gear)"
       },
       {
-        "command": "vsCMake.buildImpactedSection",
+        "command": "CMakeGraph.buildImpactedSection",
         "title": "Build all targets in section",
         "category": "CMake",
         "icon": "$(build)"
       },
       {
-        "command": "vsCMake.rebuildImpactedSection",
+        "command": "CMakeGraph.rebuildImpactedSection",
         "title": "Rebuild all targets in section (clean + build)",
         "category": "CMake",
         "icon": "$(sync)"
       },
       {
-        "command": "vsCMake.expandAllImpacted",
+        "command": "CMakeGraph.expandAllImpacted",
         "title": "Expand all",
         "category": "CMake",
         "icon": "$(expand-all)"
       },
       {
-        "command": "vsCMake.collapseAllImpacted",
+        "command": "CMakeGraph.collapseAllImpacted",
         "title": "Collapse all",
         "category": "CMake",
         "icon": "$(collapse-all)"
       },
       {
-        "command": "vsCMake.filterImpacted",
+        "command": "CMakeGraph.filterImpacted",
         "title": "Filter targets",
         "category": "CMake",
         "icon": "$(search)"
       },
       {
-        "command": "vsCMake.clearFilterImpacted",
+        "command": "CMakeGraph.clearFilterImpacted",
         "title": "Clear filter",
         "category": "CMake",
         "icon": "$(clear-all)"
       },
       {
-        "command": "vsCMake.filterOutline",
+        "command": "CMakeGraph.filterOutline",
         "title": "Filter targets",
         "category": "CMake",
         "icon": "$(search)"
       },
       {
-        "command": "vsCMake.clearFilterOutline",
+        "command": "CMakeGraph.clearFilterOutline",
         "title": "Clear filter",
         "category": "CMake",
         "icon": "$(clear-all)"
       },
       {
-        "command": "vsCMake.expandAllOutline",
+        "command": "CMakeGraph.expandAllOutline",
         "title": "Expand all",
         "category": "CMake",
         "icon": "$(expand-all)"
       },
       {
-        "command": "vsCMake.testImpactedTarget",
+        "command": "CMakeGraph.testImpactedTarget",
         "title": "Run test",
         "category": "CMake",
         "icon": "$(beaker)"
       },
       {
-        "command": "vsCMake.testImpactedSection",
+        "command": "CMakeGraph.testImpactedSection",
         "title": "Run all tests in section",
         "category": "CMake",
         "icon": "$(beaker)"
       },
       {
-        "command": "vsCMake.toggleGraphLayout",
+        "command": "CMakeGraph.toggleGraphLayout",
         "title": "Toggle layout (hierarchical / force-directed)",
         "category": "CMake",
         "icon": "$(layout)"
       },
       {
-        "command": "vsCMake.refreshDependencyGraph",
+        "command": "CMakeGraph.refreshDependencyGraph",
         "title": "Refresh",
         "category": "CMake",
         "icon": "$(refresh)"
       },
       {
-        "command": "vsCMake.graphSettings",
+        "command": "CMakeGraph.graphSettings",
         "title": "Graph Settings",
         "category": "CMake",
         "icon": "$(settings)"
       },
       {
-        "command": "vsCMake.graphScreenshot",
+        "command": "CMakeGraph.graphScreenshot",
         "title": "Screenshot Graph",
         "category": "CMake",
         "icon": "$(device-camera)"
@@ -410,242 +420,242 @@
     "menus": {
       "view/title": [
         {
-          "command": "vsCMake.selectBuildDir",
-          "when": "view == vsCMakeOutline",
+          "command": "CMakeGraph.selectBuildDir",
+          "when": "view == CMakeGraphOutline",
           "group": "navigation@1"
         },
         {
-          "command": "vsCMake.selectConfig",
-          "when": "view == vsCMakeOutline && vsCMake.multiConfig",
+          "command": "CMakeGraph.selectConfig",
+          "when": "view == CMakeGraphOutline && CMakeGraph.multiConfig",
           "group": "navigation@2"
         },
         {
-          "command": "vsCMake.filterOutline",
-          "when": "view == vsCMakeOutline",
+          "command": "CMakeGraph.filterOutline",
+          "when": "view == CMakeGraphOutline",
           "group": "navigation@3"
         },
         {
-          "command": "vsCMake.clearFilterOutline",
-          "when": "view == vsCMakeOutline && vsCMake.outlineFilterActive",
+          "command": "CMakeGraph.clearFilterOutline",
+          "when": "view == CMakeGraphOutline && CMakeGraph.outlineFilterActive",
           "group": "navigation@4"
         },
         {
-          "command": "vsCMake.expandAllOutline",
-          "when": "view == vsCMakeOutline",
+          "command": "CMakeGraph.expandAllOutline",
+          "when": "view == CMakeGraphOutline",
           "group": "navigation@5"
         },
         {
-          "command": "vsCMake.refreshOutline",
-          "when": "view == vsCMakeOutline",
+          "command": "CMakeGraph.refreshOutline",
+          "when": "view == CMakeGraphOutline",
           "group": "navigation@6"
         },
         {
-          "command": "vsCMake.openSettings",
-          "when": "view == vsCMakeOutline",
+          "command": "CMakeGraph.openSettings",
+          "when": "view == CMakeGraphOutline",
           "group": "navigation@7"
         },
         {
-          "command": "vsCMake.selectBuildDir",
-          "when": "view == vsCMakeConfig",
+          "command": "CMakeGraph.selectBuildDir",
+          "when": "view == CMakeGraphConfig",
           "group": "navigation@1"
         },
         {
-          "command": "vsCMake.selectConfig",
-          "when": "view == vsCMakeConfig && vsCMake.multiConfig",
+          "command": "CMakeGraph.selectConfig",
+          "when": "view == CMakeGraphConfig && CMakeGraph.multiConfig",
           "group": "navigation@2"
         },
         {
-          "command": "vsCMake.filterConfig",
-          "when": "view == vsCMakeConfig",
+          "command": "CMakeGraph.filterConfig",
+          "when": "view == CMakeGraphConfig",
           "group": "navigation@3"
         },
         {
-          "command": "vsCMake.clearFilterConfig",
-          "when": "view == vsCMakeConfig && vsCMake.configFilterActive",
+          "command": "CMakeGraph.clearFilterConfig",
+          "when": "view == CMakeGraphConfig && CMakeGraph.configFilterActive",
           "group": "navigation@4"
         },
         {
-          "command": "vsCMake.collapseAllConfig",
-          "when": "view == vsCMakeConfig",
+          "command": "CMakeGraph.collapseAllConfig",
+          "when": "view == CMakeGraphConfig",
           "group": "navigation@5"
         },
         {
-          "command": "vsCMake.expandAllConfig",
-          "when": "view == vsCMakeConfig",
+          "command": "CMakeGraph.expandAllConfig",
+          "when": "view == CMakeGraphConfig",
           "group": "navigation@6"
         },
         {
-          "command": "vsCMake.refreshConfig",
-          "when": "view == vsCMakeConfig",
+          "command": "CMakeGraph.refreshConfig",
+          "when": "view == CMakeGraphConfig",
           "group": "navigation@7"
         },
         {
-          "command": "vsCMake.openSettings",
-          "when": "view == vsCMakeConfig",
+          "command": "CMakeGraph.openSettings",
+          "when": "view == CMakeGraphConfig",
           "group": "navigation@8"
         },
         {
-          "command": "vsCMake.selectBuildDir",
-          "when": "view == vsCMakeImpacted",
+          "command": "CMakeGraph.selectBuildDir",
+          "when": "view == CMakeGraphImpacted",
           "group": "navigation@1"
         },
         {
-          "command": "vsCMake.selectConfig",
-          "when": "view == vsCMakeImpacted && vsCMake.multiConfig",
+          "command": "CMakeGraph.selectConfig",
+          "when": "view == CMakeGraphImpacted && CMakeGraph.multiConfig",
           "group": "navigation@2"
         },
         {
-          "command": "vsCMake.filterImpacted",
-          "when": "view == vsCMakeImpacted",
+          "command": "CMakeGraph.filterImpacted",
+          "when": "view == CMakeGraphImpacted",
           "group": "navigation@3"
         },
         {
-          "command": "vsCMake.clearFilterImpacted",
-          "when": "view == vsCMakeImpacted && vsCMake.impactedFilterActive",
+          "command": "CMakeGraph.clearFilterImpacted",
+          "when": "view == CMakeGraphImpacted && CMakeGraph.impactedFilterActive",
           "group": "navigation@4"
         },
         {
-          "command": "vsCMake.expandAllImpacted",
-          "when": "view == vsCMakeImpacted",
+          "command": "CMakeGraph.expandAllImpacted",
+          "when": "view == CMakeGraphImpacted",
           "group": "navigation@5"
         },
         {
-          "command": "vsCMake.collapseAllImpacted",
-          "when": "view == vsCMakeImpacted",
+          "command": "CMakeGraph.collapseAllImpacted",
+          "when": "view == CMakeGraphImpacted",
           "group": "navigation@6"
         },
         {
-          "command": "vsCMake.refreshImpacted",
-          "when": "view == vsCMakeImpacted",
+          "command": "CMakeGraph.refreshImpacted",
+          "when": "view == CMakeGraphImpacted",
           "group": "navigation@7"
         },
         {
-          "command": "vsCMake.openSettings",
-          "when": "view == vsCMakeImpacted",
+          "command": "CMakeGraph.openSettings",
+          "when": "view == CMakeGraphImpacted",
           "group": "navigation@8"
         },
         {
-          "command": "vsCMake.refreshDependencyGraph",
-          "when": "view == vsCMakeDependencyGraph",
+          "command": "CMakeGraph.refreshDependencyGraph",
+          "when": "view == CMakeGraphDependencyGraph",
           "group": "navigation@1"
         },
         {
-          "command": "vsCMake.graphSettings",
-          "when": "view == vsCMakeDependencyGraph",
+          "command": "CMakeGraph.graphSettings",
+          "when": "view == CMakeGraphDependencyGraph",
           "group": "navigation@2"
         },
         {
-          "command": "vsCMake.graphScreenshot",
-          "when": "view == vsCMakeDependencyGraph",
+          "command": "CMakeGraph.graphScreenshot",
+          "when": "view == CMakeGraphDependencyGraph",
           "group": "navigation@3"
         },
         {
-          "command": "vsCMake.openSettings",
-          "when": "view == vsCMakeDependencyGraph",
+          "command": "CMakeGraph.openSettings",
+          "when": "view == CMakeGraphDependencyGraph",
           "group": "navigation@4"
         }
       ],
       "view/item/context": [
         {
-          "command": "vsCMake.buildTarget",
-          "when": "view == vsCMakeOutline && viewItem =~ /^outlineTarget_/",
+          "command": "CMakeGraph.buildTarget",
+          "when": "view == CMakeGraphOutline && viewItem =~ /^outlineTarget_/",
           "group": "inline@1"
         },
         {
-          "command": "vsCMake.rebuildTarget",
-          "when": "view == vsCMakeOutline && viewItem =~ /^outlineTarget_/",
+          "command": "CMakeGraph.rebuildTarget",
+          "when": "view == CMakeGraphOutline && viewItem =~ /^outlineTarget_/",
           "group": "inline@2"
         },
         {
-          "command": "vsCMake.buildImpactedSection",
-          "when": "view == vsCMakeImpacted && viewItem =~ /^impactedSection_(libraries|executables|tests)/",
+          "command": "CMakeGraph.buildImpactedSection",
+          "when": "view == CMakeGraphImpacted && viewItem =~ /^impactedSection_(libraries|executables|tests)/",
           "group": "inline@1"
         },
         {
-          "command": "vsCMake.rebuildImpactedSection",
-          "when": "view == vsCMakeImpacted && viewItem =~ /^impactedSection_(libraries|executables|tests)/",
+          "command": "CMakeGraph.rebuildImpactedSection",
+          "when": "view == CMakeGraphImpacted && viewItem =~ /^impactedSection_(libraries|executables|tests)/",
           "group": "inline@2"
         },
         {
-          "command": "vsCMake.testImpactedSection",
-          "when": "view == vsCMakeImpacted && viewItem =~ /^impactedSection_(executables|tests)/",
+          "command": "CMakeGraph.testImpactedSection",
+          "when": "view == CMakeGraphImpacted && viewItem =~ /^impactedSection_(executables|tests)/",
           "group": "inline@3"
         },
         {
-          "command": "vsCMake.buildTarget",
-          "when": "view == vsCMakeImpacted && viewItem =~ /^impactedTarget_/",
+          "command": "CMakeGraph.buildTarget",
+          "when": "view == CMakeGraphImpacted && viewItem =~ /^impactedTarget_/",
           "group": "inline@1"
         },
         {
-          "command": "vsCMake.rebuildTarget",
-          "when": "view == vsCMakeImpacted && viewItem =~ /^impactedTarget_/",
+          "command": "CMakeGraph.rebuildTarget",
+          "when": "view == CMakeGraphImpacted && viewItem =~ /^impactedTarget_/",
           "group": "inline@2"
         },
         {
-          "command": "vsCMake.testImpactedTarget",
-          "when": "view == vsCMakeImpacted && viewItem =~ /^impactedTarget_(EXECUTABLE|TEST)/",
+          "command": "CMakeGraph.testImpactedTarget",
+          "when": "view == CMakeGraphImpacted && viewItem =~ /^impactedTarget_(EXECUTABLE|TEST)/",
           "group": "inline@3"
         },
         {
-          "command": "vsCMake.editCacheEntry",
-          "when": "view == vsCMakeConfig && viewItem == cmakeCacheEntry",
+          "command": "CMakeGraph.editCacheEntry",
+          "when": "view == CMakeGraphConfig && viewItem == cmakeCacheEntry",
           "group": "inline@1"
         },
         {
-          "command": "vsCMake.copyToClipboard",
-          "when": "view == vsCMakeOutline && viewItem == outlineCopyable",
+          "command": "CMakeGraph.copyToClipboard",
+          "when": "view == CMakeGraphOutline && viewItem == outlineCopyable",
           "group": "1_copy@1"
         },
         {
-          "command": "vsCMake.copySectionToClipboard",
-          "when": "view == vsCMakeOutline && viewItem =~ /^outlineExtras_/",
+          "command": "CMakeGraph.copySectionToClipboard",
+          "when": "view == CMakeGraphOutline && viewItem =~ /^outlineExtras_/",
           "group": "1_copy@1"
         },
         {
-          "command": "vsCMake.copyToClipboard",
-          "when": "view == vsCMakeOutline && viewItem == outlineDependency",
+          "command": "CMakeGraph.copyToClipboard",
+          "when": "view == CMakeGraphOutline && viewItem == outlineDependency",
           "group": "1_copy@1"
         },
         {
-          "command": "vsCMake.revealDependency",
-          "when": "view == vsCMakeOutline && viewItem == outlineDependency",
+          "command": "CMakeGraph.revealDependency",
+          "when": "view == CMakeGraphOutline && viewItem == outlineDependency",
           "group": "2_nav@1"
         },
         {
-          "command": "vsCMake.filterOutline",
-          "when": "view == vsCMakeOutline && viewItem =~ /^outlineFilter/",
+          "command": "CMakeGraph.filterOutline",
+          "when": "view == CMakeGraphOutline && viewItem =~ /^outlineFilter/",
           "group": "inline@1"
         },
         {
-          "command": "vsCMake.clearFilterOutline",
-          "when": "view == vsCMakeOutline && viewItem == outlineFilterActive",
+          "command": "CMakeGraph.clearFilterOutline",
+          "when": "view == CMakeGraphOutline && viewItem == outlineFilterActive",
           "group": "inline@2"
         },
         {
-          "command": "vsCMake.filterImpacted",
-          "when": "view == vsCMakeImpacted && viewItem =~ /^impactedFilter/",
+          "command": "CMakeGraph.filterImpacted",
+          "when": "view == CMakeGraphImpacted && viewItem =~ /^impactedFilter/",
           "group": "inline@1"
         },
         {
-          "command": "vsCMake.clearFilterImpacted",
-          "when": "view == vsCMakeImpacted && viewItem == impactedFilterActive",
+          "command": "CMakeGraph.clearFilterImpacted",
+          "when": "view == CMakeGraphImpacted && viewItem == impactedFilterActive",
           "group": "inline@2"
         },
         {
-          "command": "vsCMake.filterConfig",
-          "when": "view == vsCMakeConfig && viewItem =~ /^cmakeCacheFilter/",
+          "command": "CMakeGraph.filterConfig",
+          "when": "view == CMakeGraphConfig && viewItem =~ /^cmakeCacheFilter/",
           "group": "inline@1"
         },
         {
-          "command": "vsCMake.clearFilterConfig",
-          "when": "view == vsCMakeConfig && viewItem == cmakeCacheFilterActive",
+          "command": "CMakeGraph.clearFilterConfig",
+          "when": "view == CMakeGraphConfig && viewItem == cmakeCacheFilterActive",
           "group": "inline@2"
         }
       ]
     },
     "keybindings": [
       {
-        "command": "vsCMake.build",
+        "command": "CMakeGraph.build",
         "key": "ctrl+F7"
       }
     ],

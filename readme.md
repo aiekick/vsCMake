@@ -1,4 +1,4 @@
-# vsCMake
+# CMakeGraph
 
 CMake integration for VS Code via the **CMake File-Based API** -- no CMakeLists.txt parsing required.
 
@@ -7,7 +7,7 @@ CMake integration for VS Code via the **CMake File-Based API** -- no CMakeLists.
 
 ## Philosophy
 
-vsCMake takes a different approach from other CMake extensions: instead of parsing `CMakeLists.txt` files, it relies entirely on the [CMake File-Based API](https://cmake.org/cmake/help/latest/manual/cmake-file-api.7.html). This means vsCMake reads what CMake itself reports after a configure, giving you accurate project information regardless of how complex your CMake scripts are.
+CMakeGraph takes a different approach from other CMake extensions: instead of parsing `CMakeLists.txt` files, it relies entirely on the [CMake File-Based API](https://cmake.org/cmake/help/latest/manual/cmake-file-api.7.html). This means CMakeGraph reads what CMake itself reports after a configure, giving you accurate project information regardless of how complex your CMake scripts are.
 
 ## Features
 
@@ -101,7 +101,7 @@ CMake errors, warnings and deprecation notices from the configure step are parse
 
 ### Output Panel
 
-All CMake and CTest output is shown in a dedicated **vsCMake** output channel with optional syntax highlighting:
+All CMake and CTest output is shown in a dedicated **CMakeGraph** output channel with optional syntax highlighting:
 
 - Build progress (`[25/105]`)
 - File paths, target names
@@ -110,7 +110,7 @@ All CMake and CTest output is shown in a dedicated **vsCMake** output channel wi
 
 ### CMake Tools Integration
 
-vsCMake can work alongside the official CMake Tools extension. When CMake Tools triggers a configure, vsCMake automatically picks up the new build directory and build type, refreshing all panels with the latest project data.
+CMakeGraph can work alongside the official CMake Tools extension. When CMake Tools triggers a configure, CMakeGraph automatically picks up the new build directory and build type, refreshing all panels with the latest project data.
 
 ### Task Management
 
@@ -134,7 +134,7 @@ vsCMake can work alongside the official CMake Tools extension. When CMake Tools 
 
 ## Settings
 
-All settings are under the `vsCMake` prefix.
+All settings are under the `CMakeGraph` prefix.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -162,10 +162,10 @@ The `${workspaceFolder}` variable is supported and resolved automatically in pat
 1. **Query files** are written to `.cmake/api/v1/query/` in the build directory
 2. When you run **Configure**, CMake generates reply files in `.cmake/api/v1/reply/`
 3. A **file watcher** detects new `index-*.json` files and triggers a reload
-4. vsCMake reads the **codemodel**, **cache**, **cmakeFiles**, and **toolchains** replies
+4. CMakeGraph reads the **codemodel**, **cache**, **cmakeFiles**, and **toolchains** replies
 5. All panels update with accurate project information straight from CMake
 
-This approach means vsCMake works with any CMake project, regardless of complexity -- custom functions, generator expressions, FetchContent, ExternalProject, toolchain files -- everything is supported because CMake itself does the heavy lifting.
+This approach means CMakeGraph works with any CMake project, regardless of complexity -- custom functions, generator expressions, FetchContent, ExternalProject, toolchain files -- everything is supported because CMake itself does the heavy lifting.
 
 ## Requirements
 

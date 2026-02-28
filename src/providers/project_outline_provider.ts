@@ -578,7 +578,7 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
         item.iconPath = new vscode.ThemeIcon('search');
         item.contextValue = this.filter ? 'outlineFilterActive' : 'outlineFilter';
         item.command = {
-            command: 'vsCMake.filterOutline',
+            command: 'CMakeGraph.filterOutline',
             title: 'Filter',
         };
         return item;
@@ -598,7 +598,7 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
         item.id = `rootFile:${node.target?.id ?? 'root'}:${node.label}`;
         item.resourceUri = uri;
         item.contextValue = 'outlineRootFile';
-        item.command = { command: 'vsCMake.openFile', title: 'Open', arguments: [uri] };
+        item.command = { command: 'CMakeGraph.openFile', title: 'Open', arguments: [uri] };
         return item;
     }
 
@@ -630,7 +630,7 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
         item.description = `line ${node.line}`;
         item.contextValue = 'outlineTargetCmake';
         item.command = {
-            command: 'vsCMake.openLocation',
+            command: 'CMakeGraph.openLocation',
             title: 'Open',
             arguments: [node.filePath, node.line],
         };
@@ -675,7 +675,7 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
         const item = new vscode.TreeItem(path.basename(absPath), vscode.TreeItemCollapsibleState.None);
         item.id = `source:${target.id}:${source.path}`;
         item.resourceUri = uri;
-        item.command = { command: 'vsCMake.openFile', title: 'Open', arguments: [uri] };
+        item.command = { command: 'CMakeGraph.openFile', title: 'Open', arguments: [uri] };
         item.tooltip = this.sourceTooltip(absPath, compileGroup);
         item.contextValue = `outlineSource_${target.name}`;
 
@@ -711,7 +711,7 @@ export class ProjectOutlineProvider implements vscode.TreeDataProvider<TreeNode>
         const uri = vscode.Uri.file(node.path);
         const item = new vscode.TreeItem(path.basename(node.path), vscode.TreeItemCollapsibleState.None);
         item.resourceUri = uri;
-        item.command = { command: 'vsCMake.openFile', title: 'Open', arguments: [uri] };
+        item.command = { command: 'CMakeGraph.openFile', title: 'Open', arguments: [uri] };
         item.contextValue = 'outlineCmakeFile';
         return item;
     }

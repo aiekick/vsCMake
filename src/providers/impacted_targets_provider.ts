@@ -251,7 +251,7 @@ export class ImpactedTargetsProvider implements vscode.TreeDataProvider<TreeNode
                 item.iconPath = new vscode.ThemeIcon('search');
                 item.contextValue = this.filter ? 'impactedFilterActive' : 'impactedFilter';
                 item.command = {
-                    command: 'vsCMake.filterImpacted',
+                    command: 'CMakeGraph.filterImpacted',
                     title: 'Filter',
                 };
                 return item;

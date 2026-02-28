@@ -41,8 +41,8 @@ let availableConfigs: string[] = [];
 let taskStatusBar: vscode.StatusBarItem | null = null;
 let wsState: vscode.Memento | null = null;
 
-const BUILD_DIR_STATE_KEY = 'vsCMake.buildDir';
-const ACTIVE_CONFIG_STATE_KEY = 'vsCMake.activeConfig';
+const BUILD_DIR_STATE_KEY = 'CMakeGraph.buildDir';
+const ACTIVE_CONFIG_STATE_KEY = 'CMakeGraph.activeConfig';
 
 // ------------------------------------------------------------
 // Activation
@@ -57,7 +57,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     // Status bar — running tasks
     taskStatusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
-    taskStatusBar.command = 'vsCMake.cancelTask';
+    taskStatusBar.command = 'CMakeGraph.cancelTask';
     taskStatusBar.hide();
     context.subscriptions.push(taskStatusBar);
 
@@ -66,7 +66,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         if (tasks.length === 0) {
             taskStatusBar.hide();
         } else {
-            taskStatusBar.text = `$(sync~spin) vsCMake: ${tasks.length} task${tasks.length > 1 ? 's' : ''} running`;
+            taskStatusBar.text = `$(sync~spin) CMakeGraph: ${tasks.length} task${tasks.length > 1 ? 's' : ''} running`;
             taskStatusBar.tooltip = tasks.map(t => t.label).join('\n');
             taskStatusBar.show();
         }
@@ -78,18 +78,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     configProvider = new ConfigProvider();
     impactedProvider = new ImpactedTargetsProvider();
 
-    outlineView = vscode.window.createTreeView('vsCMakeOutline', {
+    outlineView = vscode.window.createTreeView('CMakeGraphOutline', {
         treeDataProvider: outlineProvider,
         showCollapseAll: true,
         canSelectMany: true,
     });
 
-    configView = vscode.window.createTreeView('vsCMakeConfig', {
+    configView = vscode.window.createTreeView('CMakeGraphConfig', {
         treeDataProvider: configProvider,
         showCollapseAll: false,
     });
 
-    impactedView = vscode.window.createTreeView('vsCMakeImpacted', {
+    impactedView = vscode.window.createTreeView('CMakeGraphImpacted', {
         treeDataProvider: impactedProvider,
         showCollapseAll: false,
     });
@@ -112,44 +112,44 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }, null, context.subscriptions);
 
     const cmds: [string, (...args: unknown[]) => unknown][] = [
-        ['vsCMake.cancelTask', () => cmdCancelTask()],
-        ['vsCMake.selectBuildDir', () => cmdSelectBuildDir(context)],
-        ['vsCMake.selectConfig', cmdSelectConfig],
-        ['vsCMake.build', cmdBuild],
-        ['vsCMake.buildTarget', cmdBuildTarget],
-        ['vsCMake.rebuildTarget', (node: unknown) => cmdRebuildTarget(node)],
-        ['vsCMake.buildImpactedSection', (node: unknown) => cmdBuildImpactedSection(node)],
-        ['vsCMake.rebuildImpactedSection', (node: unknown) => cmdRebuildImpactedSection(node)],
-        ['vsCMake.expandAllImpacted', cmdExpandAllImpacted],
-        ['vsCMake.collapseAllImpacted', cmdCollapseAllImpacted],
-        ['vsCMake.filterImpacted', cmdFilterImpacted],
-        ['vsCMake.clearFilterImpacted', cmdClearFilterImpacted],
-        ['vsCMake.testImpactedTarget', (node: unknown) => cmdTestImpactedTarget(node)],
-        ['vsCMake.testImpactedSection', (node: unknown) => cmdTestImpactedSection(node)],
-        ['vsCMake.filterOutline', cmdFilterOutline],
-        ['vsCMake.clearFilterOutline', cmdClearFilterOutline],
-        ['vsCMake.expandAllOutline', cmdExpandAllOutline],
-        ['vsCMake.clean', cmdClean],
-        ['vsCMake.test', cmdTest],
-        ['vsCMake.refresh', cmdRefresh],
-        ['vsCMake.refreshOutline', cmdRefresh],
-        ['vsCMake.refreshConfig', cmdRefresh],
-        ['vsCMake.refreshImpacted', cmdRefresh],
-        ['vsCMake.editCacheEntry', (e: unknown) => cmdEditCacheEntry(e as CacheEntry)],
-        ['vsCMake.filterConfig', cmdFilterConfig],
-        ['vsCMake.clearFilterConfig', cmdClearFilterConfig],
-        ['vsCMake.expandAllConfig', cmdExpandAllConfig],
-        ['vsCMake.collapseAllConfig', cmdCollapseAllConfig],
-        ['vsCMake.openFile', (uri: unknown) => cmdOpenFile(uri as vscode.Uri)],
-        ['vsCMake.openLocation', (file: unknown, line: unknown) => cmdOpenLocation(file as string, line as number)],
-        ['vsCMake.copyToClipboard', (...args: unknown[]) => cmdCopyToClipboard(args)],
-        ['vsCMake.copySectionToClipboard', (...args: unknown[]) => cmdCopySectionToClipboard(args)],
-        ['vsCMake.revealDependency', (node: unknown) => cmdRevealDependency(node)],
-        ['vsCMake.openSettings', cmdOpenSettings],
-        ['vsCMake.toggleGraphLayout', () => graphProvider?.toggleLayout()],
-        ['vsCMake.refreshDependencyGraph', cmdRefresh],
-        ['vsCMake.graphSettings', () => graphProvider?.showSettings()],
-        ['vsCMake.graphScreenshot', () => graphProvider?.screenshot()],
+        ['CMakeGraph.cancelTask', () => cmdCancelTask()],
+        ['CMakeGraph.selectBuildDir', () => cmdSelectBuildDir(context)],
+        ['CMakeGraph.selectConfig', cmdSelectConfig],
+        ['CMakeGraph.build', cmdBuild],
+        ['CMakeGraph.buildTarget', cmdBuildTarget],
+        ['CMakeGraph.rebuildTarget', (node: unknown) => cmdRebuildTarget(node)],
+        ['CMakeGraph.buildImpactedSection', (node: unknown) => cmdBuildImpactedSection(node)],
+        ['CMakeGraph.rebuildImpactedSection', (node: unknown) => cmdRebuildImpactedSection(node)],
+        ['CMakeGraph.expandAllImpacted', cmdExpandAllImpacted],
+        ['CMakeGraph.collapseAllImpacted', cmdCollapseAllImpacted],
+        ['CMakeGraph.filterImpacted', cmdFilterImpacted],
+        ['CMakeGraph.clearFilterImpacted', cmdClearFilterImpacted],
+        ['CMakeGraph.testImpactedTarget', (node: unknown) => cmdTestImpactedTarget(node)],
+        ['CMakeGraph.testImpactedSection', (node: unknown) => cmdTestImpactedSection(node)],
+        ['CMakeGraph.filterOutline', cmdFilterOutline],
+        ['CMakeGraph.clearFilterOutline', cmdClearFilterOutline],
+        ['CMakeGraph.expandAllOutline', cmdExpandAllOutline],
+        ['CMakeGraph.clean', cmdClean],
+        ['CMakeGraph.test', cmdTest],
+        ['CMakeGraph.refresh', cmdRefresh],
+        ['CMakeGraph.refreshOutline', cmdRefresh],
+        ['CMakeGraph.refreshConfig', cmdRefresh],
+        ['CMakeGraph.refreshImpacted', cmdRefresh],
+        ['CMakeGraph.editCacheEntry', (e: unknown) => cmdEditCacheEntry(e as CacheEntry)],
+        ['CMakeGraph.filterConfig', cmdFilterConfig],
+        ['CMakeGraph.clearFilterConfig', cmdClearFilterConfig],
+        ['CMakeGraph.expandAllConfig', cmdExpandAllConfig],
+        ['CMakeGraph.collapseAllConfig', cmdCollapseAllConfig],
+        ['CMakeGraph.openFile', (uri: unknown) => cmdOpenFile(uri as vscode.Uri)],
+        ['CMakeGraph.openLocation', (file: unknown, line: unknown) => cmdOpenLocation(file as string, line as number)],
+        ['CMakeGraph.copyToClipboard', (...args: unknown[]) => cmdCopyToClipboard(args)],
+        ['CMakeGraph.copySectionToClipboard', (...args: unknown[]) => cmdCopySectionToClipboard(args)],
+        ['CMakeGraph.revealDependency', (node: unknown) => cmdRevealDependency(node)],
+        ['CMakeGraph.openSettings', cmdOpenSettings],
+        ['CMakeGraph.toggleGraphLayout', () => graphProvider?.toggleLayout()],
+        ['CMakeGraph.refreshDependencyGraph', cmdRefresh],
+        ['CMakeGraph.graphSettings', () => graphProvider?.showSettings()],
+        ['CMakeGraph.graphScreenshot', () => graphProvider?.screenshot()],
     ];
 
     for (const [id, handler] of cmds) {
@@ -170,7 +170,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     currentConfig = wsState.get<string>(ACTIVE_CONFIG_STATE_KEY) || 'Release';
 
     // ── Initialize buildDir ──
-    const cfg = vscode.workspace.getConfiguration('vsCMake');
+    const cfg = vscode.workspace.getConfiguration('CMakeGraph');
     const savedBuild = resolveSettingPath(cfg.get<string>('buildDir'))
         || wsState.get<string>(BUILD_DIR_STATE_KEY)
         || null;
@@ -205,7 +205,7 @@ async function initBuildDir(dir: string, context: vscode.ExtensionContext): Prom
         await loadReply();
     } else {
         vscode.window.showInformationMessage(
-            'vsCMake: build dir configured. Waiting for CMake reply files.'
+            'CMakeGraph: build dir configured. Waiting for CMake reply files.'
         );
     }
 }
@@ -229,7 +229,7 @@ async function loadReply(): Promise<void> {
         currentConfig = detectConfig();
 
         // Show/hide config selector button based on multi-config
-        await vscode.commands.executeCommand('setContext', 'vsCMake.multiConfig', availableConfigs.length > 1);
+        await vscode.commands.executeCommand('setContext', 'CMakeGraph.multiConfig', availableConfigs.length > 1);
 
         outlineProvider!.refresh(
             lastReply.codemodel,
@@ -249,7 +249,7 @@ async function loadReply(): Promise<void> {
 
     } catch (err) {
         vscode.window.showErrorMessage(
-            `vsCMake: reply read error — ${(err as Error).message}`
+            `CMakeGraph: reply read error — ${(err as Error).message}`
         );
     }
 }
@@ -271,7 +271,7 @@ function detectConfig(): string {
 // ------------------------------------------------------------
 async function cmdSelectConfig(): Promise<void> {
     if (!availableConfigs.length) {
-        vscode.window.showWarningMessage('vsCMake: no configurations available. Load a build directory first.');
+        vscode.window.showWarningMessage('CMakeGraph: no configurations available. Load a build directory first.');
         return;
     }
     const items = availableConfigs.map(c => ({
@@ -314,34 +314,34 @@ async function cmdSelectBuildDir(context: vscode.ExtensionContext): Promise<void
     });
     if (!folders?.length) { return; }
     const dir = folders[0].fsPath;
-    await vscode.workspace.getConfiguration('vsCMake').update(
+    await vscode.workspace.getConfiguration('CMakeGraph').update(
         'buildDir', dir, vscode.ConfigurationTarget.Workspace
     );
     await initBuildDir(dir, context);
 }
 
 function getCmakePath(): string {
-    return resolveSettingPath(vscode.workspace.getConfiguration('vsCMake').get<string>('cmakePath')) || '';
+    return resolveSettingPath(vscode.workspace.getConfiguration('CMakeGraph').get<string>('cmakePath')) || '';
 }
 
 function getCtestPath(): string {
-    return resolveSettingPath(vscode.workspace.getConfiguration('vsCMake').get<string>('ctestPath')) || '';
+    return resolveSettingPath(vscode.workspace.getConfiguration('CMakeGraph').get<string>('ctestPath')) || '';
 }
 
 function getDefaultJobs(): number {
-    return vscode.workspace.getConfiguration('vsCMake').get<number>('defaultJobs', 0);
+    return vscode.workspace.getConfiguration('CMakeGraph').get<number>('defaultJobs', 0);
 }
 
 async function cmdBuild(): Promise<void> {
     if (!runner || !buildDir) {
-        vscode.window.showWarningMessage('vsCMake: select a build folder first.');
+        vscode.window.showWarningMessage('CMakeGraph: select a build folder first.');
         return;
     }
     const cmakePath = getCmakePath();
     const jobs = getDefaultJobs();
     const result = await runner.build(buildDir, undefined, currentConfig || undefined, undefined, cmakePath, jobs);
     if (!result.success && !result.cancelled) {
-        vscode.window.showErrorMessage(`vsCMake: build failed (code ${result.code})`);
+        vscode.window.showErrorMessage(`CMakeGraph: build failed (code ${result.code})`);
     }
 }
 
@@ -362,7 +362,7 @@ async function cmdBuildTarget(node?: unknown): Promise<void> {
     const jobs = getDefaultJobs();
     const result = await runner.build(buildDir, targetName, currentConfig || undefined, undefined, cmakePath, jobs);
     if (!result.success && !result.cancelled) {
-        vscode.window.showErrorMessage(`vsCMake: build of '${targetName}' failed (code ${result.code})`);
+        vscode.window.showErrorMessage(`CMakeGraph: build of '${targetName}' failed (code ${result.code})`);
     }
 }
 
@@ -382,7 +382,7 @@ async function cmdRebuildTarget(node?: unknown): Promise<void> {
     const cmakePath = getCmakePath();
     const result = await runner.cleanAndBuildTargets(buildDir, [targetName], currentConfig || undefined, cmakePath);
     if (!result.success && !result.cancelled) {
-        vscode.window.showErrorMessage(`vsCMake: rebuild of '${targetName}' failed (code ${result.code})`);
+        vscode.window.showErrorMessage(`CMakeGraph: rebuild of '${targetName}' failed (code ${result.code})`);
     }
 }
 
@@ -394,7 +394,7 @@ async function cmdBuildImpactedSection(node?: unknown): Promise<void> {
     const jobs = getDefaultJobs();
     const result = await runner.buildTargets(buildDir, targets, currentConfig || undefined, cmakePath, jobs);
     if (!result.success && !result.cancelled) {
-        vscode.window.showErrorMessage(`vsCMake: build of section failed (code ${result.code})`);
+        vscode.window.showErrorMessage(`CMakeGraph: build of section failed (code ${result.code})`);
     }
 }
 
@@ -406,7 +406,7 @@ async function cmdRebuildImpactedSection(node?: unknown): Promise<void> {
     const jobs = getDefaultJobs();
     const result = await runner.cleanAndBuildTargets(buildDir, targets, currentConfig || undefined, cmakePath, jobs);
     if (!result.success && !result.cancelled) {
-        vscode.window.showErrorMessage(`vsCMake: rebuild of section failed (code ${result.code})`);
+        vscode.window.showErrorMessage(`CMakeGraph: rebuild of section failed (code ${result.code})`);
     }
 }
 
@@ -430,7 +430,7 @@ async function cmdExpandAllImpacted(): Promise<void> {
 }
 
 async function cmdCollapseAllImpacted(): Promise<void> {
-    await vscode.commands.executeCommand('workbench.actions.treeView.vsCMakeImpacted.collapseAll');
+    await vscode.commands.executeCommand('workbench.actions.treeView.CMakeGraphImpacted.collapseAll');
 }
 
 async function cmdFilterImpacted(): Promise<void> {
@@ -445,17 +445,17 @@ async function cmdFilterImpacted(): Promise<void> {
     if (input === undefined) { return; }
     if (input === '') {
         impactedProvider.clearFilter();
-        await vscode.commands.executeCommand('setContext', 'vsCMake.impactedFilterActive', false);
+        await vscode.commands.executeCommand('setContext', 'CMakeGraph.impactedFilterActive', false);
     } else {
         impactedProvider.setFilter(input);
-        await vscode.commands.executeCommand('setContext', 'vsCMake.impactedFilterActive', true);
+        await vscode.commands.executeCommand('setContext', 'CMakeGraph.impactedFilterActive', true);
     }
 }
 
 async function cmdClearFilterImpacted(): Promise<void> {
     if (!impactedProvider) { return; }
     impactedProvider.clearFilter();
-    await vscode.commands.executeCommand('setContext', 'vsCMake.impactedFilterActive', false);
+    await vscode.commands.executeCommand('setContext', 'CMakeGraph.impactedFilterActive', false);
 }
 
 // ------------------------------------------------------------
@@ -474,7 +474,7 @@ async function cmdTestImpactedTarget(node?: unknown): Promise<void> {
         : escapeRegex(targetName);
     const result = await runner.testByRegex(buildDir, regex, currentConfig || undefined, ctestPath, jobs);
     if (!result.success && !result.cancelled) {
-        vscode.window.showErrorMessage(`vsCMake: test '${targetName}' failed (code ${result.code})`);
+        vscode.window.showErrorMessage(`CMakeGraph: test '${targetName}' failed (code ${result.code})`);
     }
 }
 
@@ -491,7 +491,7 @@ async function cmdTestImpactedSection(node?: unknown): Promise<void> {
         : targets.map(n => escapeRegex(n)).join('|');
     const result = await runner.testByRegex(buildDir, regex, currentConfig || undefined, ctestPath, jobs);
     if (!result.success && !result.cancelled) {
-        vscode.window.showErrorMessage(`vsCMake: tests failed (code ${result.code})`);
+        vscode.window.showErrorMessage(`CMakeGraph: tests failed (code ${result.code})`);
     }
 }
 
@@ -515,17 +515,17 @@ async function cmdFilterOutline(): Promise<void> {
     if (input === undefined) { return; }
     if (input === '') {
         outlineProvider.clearFilter();
-        await vscode.commands.executeCommand('setContext', 'vsCMake.outlineFilterActive', false);
+        await vscode.commands.executeCommand('setContext', 'CMakeGraph.outlineFilterActive', false);
     } else {
         outlineProvider.setFilter(input);
-        await vscode.commands.executeCommand('setContext', 'vsCMake.outlineFilterActive', true);
+        await vscode.commands.executeCommand('setContext', 'CMakeGraph.outlineFilterActive', true);
     }
 }
 
 async function cmdClearFilterOutline(): Promise<void> {
     if (!outlineProvider) { return; }
     outlineProvider.clearFilter();
-    await vscode.commands.executeCommand('setContext', 'vsCMake.outlineFilterActive', false);
+    await vscode.commands.executeCommand('setContext', 'CMakeGraph.outlineFilterActive', false);
 }
 
 async function cmdExpandAllOutline(): Promise<void> {
@@ -620,14 +620,14 @@ async function refreshAvailableTests(): Promise<void> {
 
 async function cmdTest(): Promise<void> {
     if (!runner || !buildDir) {
-        vscode.window.showWarningMessage('vsCMake: select a build folder first.');
+        vscode.window.showWarningMessage('CMakeGraph: select a build folder first.');
         return;
     }
     const ctestPath = getCtestPath();
     const jobs = getDefaultJobs();
     const result = await runner.test(buildDir, currentConfig || undefined, undefined, ctestPath, jobs);
     if (!result.success && !result.cancelled) {
-        vscode.window.showErrorMessage(`vsCMake: test failed (code ${result.code})`);
+        vscode.window.showErrorMessage(`CMakeGraph: test failed (code ${result.code})`);
     }
 }
 
@@ -707,7 +707,7 @@ async function cmdEditCacheEntry(entry: CacheEntry): Promise<void> {
         const src = lastReply?.codemodel.paths?.source || buildDir;
         const result = await runner.configure(src, buildDir, { [entry.name]: newValue });
         if (!result.success && !result.cancelled) {
-            vscode.window.showErrorMessage(`vsCMake: reconfigure failed after modifying ${entry.name}`);
+            vscode.window.showErrorMessage(`CMakeGraph: reconfigure failed after modifying ${entry.name}`);
         }
     } else {
         // ── Strategy B: patch CMakeCache.txt directly ──
@@ -718,12 +718,12 @@ async function cmdEditCacheEntry(entry: CacheEntry): Promise<void> {
             // Match the line:  NAME:TYPE=VALUE
             const regex = new RegExp(`^(${escapeRegex(entry.name)}:${escapeRegex(entry.type)}=)(.*)$`, 'm');
             if (!regex.test(content)) {
-                vscode.window.showWarningMessage(`vsCMake: entry ${entry.name} not found in CMakeCache.txt`);
+                vscode.window.showWarningMessage(`CMakeGraph: entry ${entry.name} not found in CMakeCache.txt`);
                 return;
             }
             const updated = content.replace(regex, `$1${newValue}`);
             await fsP.writeFile(cachePath, updated, 'utf-8');
-            vscode.window.showInformationMessage(`vsCMake: ${entry.name} set to ${newValue}`);
+            vscode.window.showInformationMessage(`CMakeGraph: ${entry.name} set to ${newValue}`);
 
             // Update in-memory cache and refresh the config pane
             entry.value = newValue;
@@ -732,7 +732,7 @@ async function cmdEditCacheEntry(entry: CacheEntry): Promise<void> {
             }
         } catch (err) {
             vscode.window.showErrorMessage(
-                `vsCMake: failed to update CMakeCache.txt — ${(err as Error).message}`
+                `CMakeGraph: failed to update CMakeCache.txt — ${(err as Error).message}`
             );
         }
     }
@@ -750,17 +750,17 @@ async function cmdFilterConfig(): Promise<void> {
     if (input === undefined) { return; }
     if (input === '') {
         configProvider.clearFilter();
-        await vscode.commands.executeCommand('setContext', 'vsCMake.configFilterActive', false);
+        await vscode.commands.executeCommand('setContext', 'CMakeGraph.configFilterActive', false);
     } else {
         configProvider.setFilter(input);
-        await vscode.commands.executeCommand('setContext', 'vsCMake.configFilterActive', true);
+        await vscode.commands.executeCommand('setContext', 'CMakeGraph.configFilterActive', true);
     }
 }
 
 async function cmdClearFilterConfig(): Promise<void> {
     if (!configProvider) { return; }
     configProvider.clearFilter();
-    await vscode.commands.executeCommand('setContext', 'vsCMake.configFilterActive', false);
+    await vscode.commands.executeCommand('setContext', 'CMakeGraph.configFilterActive', false);
 }
 
 async function cmdExpandAllConfig(): Promise<void> {
@@ -773,7 +773,7 @@ async function cmdExpandAllConfig(): Promise<void> {
 }
 
 async function cmdCollapseAllConfig(): Promise<void> {
-    await vscode.commands.executeCommand('workbench.actions.treeView.vsCMakeConfig.collapseAll');
+    await vscode.commands.executeCommand('workbench.actions.treeView.CMakeGraphConfig.collapseAll');
 }
 
 async function cmdOpenFile(uri: vscode.Uri): Promise<void> {
@@ -802,7 +802,7 @@ async function cmdCopyToClipboard(args: unknown[]): Promise<void> {
     if (!texts.length) { return; }
     const text = texts.join('\n');
     await vscode.env.clipboard.writeText(text);
-    vscode.window.showInformationMessage(`vsCMake: ${texts.length} item${texts.length > 1 ? 's' : ''} copied`);
+    vscode.window.showInformationMessage(`CMakeGraph: ${texts.length} item${texts.length > 1 ? 's' : ''} copied`);
 }
 
 async function cmdCopySectionToClipboard(args: unknown[]): Promise<void> {
@@ -813,7 +813,7 @@ async function cmdCopySectionToClipboard(args: unknown[]): Promise<void> {
     if (!texts.length) { return; }
     const text = texts.join('\n');
     await vscode.env.clipboard.writeText(text);
-    vscode.window.showInformationMessage(`vsCMake: ${texts.length} item${texts.length > 1 ? 's' : ''} copied`);
+    vscode.window.showInformationMessage(`CMakeGraph: ${texts.length} item${texts.length > 1 ? 's' : ''} copied`);
 }
 
 function extractNodeText(node: any): string {
@@ -837,7 +837,7 @@ async function cmdRevealDependency(node: unknown): Promise<void> {
     if (dep.kind !== 'dependency' || !dep.target) { return; }
     const targetNode = outlineProvider.findTargetNode(dep.target.id);
     if (!targetNode) {
-        vscode.window.showWarningMessage('vsCMake: target not found in outline.');
+        vscode.window.showWarningMessage('CMakeGraph: target not found in outline.');
         return;
     }
     await outlineView.reveal(targetNode, { select: true, focus: true, expand: true });

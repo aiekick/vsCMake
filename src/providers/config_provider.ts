@@ -146,7 +146,7 @@ export class ConfigProvider implements vscode.TreeDataProvider<TreeNode> {
         item.iconPath = new vscode.ThemeIcon('search');
         item.contextValue = this.filter ? 'cmakeCacheFilterActive' : 'cmakeCacheFilter';
         item.command = {
-            command: 'vsCMake.filterConfig',
+            command: 'CMakeGraph.filterConfig',
             title: 'Filter',
         };
         return item;
@@ -174,7 +174,7 @@ export class ConfigProvider implements vscode.TreeDataProvider<TreeNode> {
         item.contextValue = 'cmakeCacheEntry';
 
         item.command = {
-            command: 'vsCMake.editCacheEntry',
+            command: 'CMakeGraph.editCacheEntry',
             title: 'Edit',
             arguments: [node.entry],
         };

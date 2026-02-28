@@ -31,7 +31,7 @@ interface RunOptions {
 // Runner
 // ------------------------------------------------------------
 export class Runner {
-    private static readonly MSVC_STATE_KEY = 'vsCMake.msvcEnvCache';
+    private static readonly MSVC_STATE_KEY = 'CMakeGraph.msvcEnvCache';
 
     private channel: vscode.OutputChannel;
     private tasks = new Map<number, RunningTask>();
@@ -46,10 +46,10 @@ export class Runner {
     constructor(state?: vscode.Memento, diagnosticsManager?: CMakeDiagnosticsManager) {
         this.state = state;
         this.diagnosticsManager = diagnosticsManager;
-        const colorize = vscode.workspace.getConfiguration('vsCMake').get<boolean>('colorizeOutput', true);
+        const colorize = vscode.workspace.getConfiguration('CMakeGraph').get<boolean>('colorizeOutput', true);
         this.channel = colorize
-            ? vscode.window.createOutputChannel('vsCMake', 'vscmake-output')
-            : vscode.window.createOutputChannel('vsCMake');
+            ? vscode.window.createOutputChannel('CMakeGraph', 'vscmake-output')
+            : vscode.window.createOutputChannel('CMakeGraph');
 
         // Restore persisted MSVC env from previous session
         if (state) {
@@ -96,7 +96,7 @@ export class Runner {
             const env = captureVcvarsEnv(auto.vcvarsall, auto.arch);
             if (env) {
                 this.channel.appendLine(
-                    `ℹ vsCMake: MSVC environment auto-detected (${auto.arch})`
+                    `ℹ CMakeGraph: MSVC environment auto-detected (${auto.arch})`
                 );
                 this.msvcEnv = env;
                 this.persistMsvcEnv();
@@ -291,7 +291,7 @@ export class Runner {
         const id = this.nextId++;
         const label = `${cmd} ${args.join(' ')}`;
         const isWin = os.platform() === 'win32';
-        const clearOutput = !silent && vscode.workspace.getConfiguration('vsCMake').get<boolean>('clearOutputBeforeRun', true);
+        const clearOutput = !silent && vscode.workspace.getConfiguration('CMakeGraph').get<boolean>('clearOutputBeforeRun', true);
 
         const msvcEnv = this.resolveMsvcEnv();
 

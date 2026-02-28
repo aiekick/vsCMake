@@ -16,10 +16,10 @@ jobs:
       - name: Install dependencies
         run: npm install
       - name: Create ZIP
-        run: Compress-Archive -Path .\* -DestinationPath .\vsCMake.zip
+        run: Compress-Archive -Path .\* -DestinationPath .\CMakeGraph.zip
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: vsCMake
-          path: vsCMake.zip
+          name: CMakeGraph
+          path: CMakeGraph.zip
           retention-days: 7

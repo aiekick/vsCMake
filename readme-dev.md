@@ -1,6 +1,6 @@
-# vsCMake -- Developer Guide
+# CMakeGraph -- Developer Guide
 
-This document describes the internal architecture of vsCMake and the procedures for developing, debugging and packaging the extension.
+This document describes the internal architecture of CMakeGraph and the procedures for developing, debugging and packaging the extension.
 
 ## Prerequisites
 
@@ -77,7 +77,7 @@ Reference: https://github.com/microsoft/vscode-icons
 ## Project Structure
 
 ```
-vsCMake/
+CMakeGraph/
   src/
     extension.ts                          Main entry point (activate / deactivate)
     cmake/
@@ -140,9 +140,9 @@ CMake File-Based API
 
 ### CMake Tools Integration (`misc/cmake_tools_api.ts`)
 
-`CMakeToolsIntegrationManager` listens for configure events from the official CMake Tools extension (if installed). When CMake Tools finishes a configure, vsCMake receives the build directory and build type, then calls `initBuildDir()` and `updateAllPanesWithConfig()` to refresh all panels automatically.
+`CMakeToolsIntegrationManager` listens for configure events from the official CMake Tools extension (if installed). When CMake Tools finishes a configure, CMakeGraph receives the build directory and build type, then calls `initBuildDir()` and `updateAllPanesWithConfig()` to refresh all panels automatically.
 
-The manager handles reconnection when workspace folders change or when CMake Tools is activated after vsCMake.
+The manager handles reconnection when workspace folders change or when CMake Tools is activated after CMakeGraph.
 
 ### CMake File-Based API Integration (`api_client.ts`)
 
@@ -284,7 +284,7 @@ Pure TypeScript compiled to a single IIFE bundle (via esbuild). Runs in the webv
 
 **State persistence:**
 - Camera position and zoom are saved via `vscode.setState()` / `vscode.getState()` (survives webview refresh)
-- All graph settings (edge style, direction, colors, simulation parameters, minimap, collapse states, panel visibility) are persisted to workspace settings via `updateSetting` messages to the provider, which calls `vscode.workspace.getConfiguration('vsCMake').update(key, value, ConfigurationTarget.Workspace)`
+- All graph settings (edge style, direction, colors, simulation parameters, minimap, collapse states, panel visibility) are persisted to workspace settings via `updateSetting` messages to the provider, which calls `vscode.workspace.getConfiguration('CMakeGraph').update(key, value, ConfigurationTarget.Workspace)`
 - On load, provider reads all settings and sends them in the `update` message; webview applies them via `applySettingsFromProvider()`
 - Settings panel is restored after `setupCanvas()` to ensure the container is visible
 
@@ -372,14 +372,14 @@ Decorates files and folders in the Explorer with diagnostic badges:
 
 ### Views
 
-Four views in the `vsCMake` activity bar container:
+Four views in the `CMakeGraph` activity bar container:
 
 | View ID | Name | Type |
 |---------|------|------|
-| `vsCMakeOutline` | Project Outline | Tree view |
-| `vsCMakeConfig` | Configuration | Tree view |
-| `vsCMakeImpacted` | Impacted Targets | Tree view |
-| `vsCMakeDependencyGraph` | Dependency Graph | Webview |
+| `CMakeGraphOutline` | Project Outline | Tree view |
+| `CMakeGraphConfig` | Configuration | Tree view |
+| `CMakeGraphImpacted` | Impacted Targets | Tree view |
+| `CMakeGraphDependencyGraph` | Dependency Graph | Webview |
 
 ### Context Values
 
@@ -407,7 +407,7 @@ Context values control which inline buttons appear on each tree node:
 
 ### Commands
 
-All commands are prefixed with `vsCMake.`. The full list is declared in `package.json` under `contributes.commands`. Key commands:
+All commands are prefixed with `CMakeGraph.`. The full list is declared in `package.json` under `contributes.commands`. Key commands:
 
 | Command | Title | Keybinding |
 |---------|-------|------------|
