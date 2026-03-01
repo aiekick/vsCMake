@@ -1,4 +1,10 @@
-import { GraphEdgeDirection } from '../cmake/types';
+// Edge direction enum — duplicated here to keep the webview self-contained
+// (no imports, so tsc CommonJS output works in the browser context).
+// Must stay in sync with WorkspaceConfig.Graph.EdgeDirection in config/workspace/types.ts
+const enum GraphEdgeDirection {
+    USED_BY_TARGETS = 'inverse',
+    TARGETS_USED_BY = 'dependency',
+}
 
 // ------------------------------------------------------------
 // VS Code API
@@ -53,9 +59,13 @@ let search_filter = '';
 let search_mode: 'name' | 'path' = 'name';
 let search_filter_mode: 'dim' | 'hide' = 'hide'; // dim = lower opacity, hide = remove from graph
 let minimap_enabled = true;
-let tapered_width_factor = 2.0;
 let settings_collapse_state: Record<string, boolean> = { edges: false, colors: true, simulation: true, display: false, controls: false };
 let settings_panel_visible = false;
+let total_sim_energy = 0;
+
+// Default values received from the provider (workspace config defaults).
+// Used by reset buttons to restore a widget to its default value.
+let provider_defaults: Record<string, any> = {};
 
 // Focused view state: when non-null, only show the recursively connected subgraph
 let focused_node_id: string | null = null;
@@ -96,21 +106,52 @@ let drag_offset_y = 0;
 let first_layout = true;
 
 // ------------------------------------------------------------
-// Force simulation parameters (defaults)
+// Force simulation parameters
+// Actual values come from the provider (workspace settings).
+// These are just initial placeholders until applySettingsFromProvider is called.
 // ------------------------------------------------------------
 
-const SIM_DEFAULTS: Record<string, number> = {
-    repulsion: 50000, // node repulsion strength: higher = stronger push away
-    attraction: 0.1, // edge attraction strength: higher = stronger pull together
-    gravity: 0.001, // gravity strength: higher = stronger pull towards center, prevents drifting apart
-    linkLength: 0.05, // ideal link length smaller = stronger spring
-    minDistance: 50, // minimum distance for repulsion to avoid extreme forces at close range
-    stepsPerFrame: 5, // how many simulation steps to run per animation frame, higher = faster convergence but more CPU usage
-    threshold: 2, // when to stop the simulation: if max node movement is below this, we consider it "converged" and stop until next interaction
-    damping: 0.85, // velocity damping factor: between 0 and 1, higher = quicker stop but can cause jitter, lower = longer settling time but smoother
+interface SimVars {
+    repulsion: number;
+    attraction: number;
+    gravity: number;
+    linkLength: number;
+    minDistance: number;
+    stepsPerFrame: number;
+    threshold: number;
+    damping: number;
+    taperedWidth: number;
+}
+
+// Clamping definitions for each parameter: [min, max]
+const SIM_CLAMP: Record<keyof SimVars, [number, number]> = {
+    repulsion: [100, 200000],
+    attraction: [0.0001, 1],
+    gravity: [0.0001, 1],
+    linkLength: [0.001, 10],
+    minDistance: [1, 50000],
+    stepsPerFrame: [1, 20],
+    threshold: [0.001, 10],
+    damping: [0.1, 1.0],
+    taperedWidth: [0.1, 10],
 };
 
-let sim_vars: Record<string, number> = SIM_DEFAULTS; // current sim parameters, can be tweaked by user
+function clampSimVar(aKey: keyof SimVars, aValue: number): number {
+    const [lo, hi] = SIM_CLAMP[aKey];
+    return Math.max(lo, Math.min(hi, aValue));
+}
+
+const sim_vars: SimVars = {
+    repulsion: 10000,
+    attraction: 0.1,
+    gravity: 0.001,
+    linkLength: 0.1,
+    minDistance: 50,
+    stepsPerFrame: 5,
+    threshold: 2,
+    damping: 0.85,
+    taperedWidth: 1.0,
+};
 
 let sim_running = false; // whether the simulation loop is currently running (can be paused by user)
 let sim_anim_frame: number | null = null; // current animation frame id for simulation loop, used to cancel when needed
@@ -316,7 +357,7 @@ function drawEdges(aW: number, aH: number): void {
 
 /** Dispatch to the correct edge style, respecting edge direction */
 function drawEdgeStyled(
-    aC: CanvasRenderingContext2D,
+    aCanvas: CanvasRenderingContext2D,
     aX1: number, aY1: number, aX2: number, aY2: number,
     aColor: string | CanvasGradient, aAlpha = 1,
 ): void {
@@ -326,15 +367,15 @@ function drawEdgeStyled(
         sx1 = aX2; sy1 = aY2; sx2 = aX1; sy2 = aY1;
     }
     switch (edge_style) {
-        case 'tapered': drawTaperedEdge(aC, sx1, sy1, sx2, sy2, aColor, aAlpha); break;
-        case 'chevrons': drawChevronEdge(aC, sx1, sy1, sx2, sy2, aColor, aAlpha); break;
-        case 'line': drawLineEdge(aC, sx1, sy1, sx2, sy2, aColor, aAlpha); break;
+        case 'tapered': drawTaperedEdge(aCanvas, sx1, sy1, sx2, sy2, aColor, aAlpha); break;
+        case 'chevrons': drawChevronEdge(aCanvas, sx1, sy1, sx2, sy2, aColor, aAlpha); break;
+        case 'line': drawLineEdge(aCanvas, sx1, sy1, sx2, sy2, aColor, aAlpha); break;
     }
 }
 
 /** Tapered triangle: wider at "from", narrow at "to" */
 function drawTaperedEdge(
-    aC: CanvasRenderingContext2D,
+    aCanvas: CanvasRenderingContext2D,
     aX1: number, aY1: number, aX2: number, aY2: number,
     aColor: string | CanvasGradient, aAlpha = 1,
 ): void {
@@ -346,24 +387,24 @@ function drawTaperedEdge(
     const px = -dy / len;
     const py = dx / len;
 
-    const wide_half = Math.max(1.5, 3 * zoom * tapered_width_factor);
-    const narrow_half = Math.max(0.3, 0.5 * zoom * tapered_width_factor);
+    const wide_half = Math.max(1.5, 3 * zoom * sim_vars.taperedWidth);
+    const narrow_half = Math.max(0.3, 0.5 * zoom * sim_vars.taperedWidth);
 
-    aC.globalAlpha = aAlpha;
-    aC.fillStyle = aColor;
-    aC.beginPath();
-    aC.moveTo(aX1 + px * wide_half, aY1 + py * wide_half);
-    aC.lineTo(aX2 + px * narrow_half, aY2 + py * narrow_half);
-    aC.lineTo(aX2 - px * narrow_half, aY2 - py * narrow_half);
-    aC.lineTo(aX1 - px * wide_half, aY1 - py * wide_half);
-    aC.closePath();
-    aC.fill();
-    aC.globalAlpha = 1;
+    aCanvas.globalAlpha = aAlpha;
+    aCanvas.fillStyle = aColor;
+    aCanvas.beginPath();
+    aCanvas.moveTo(aX1 + px * wide_half, aY1 + py * wide_half);
+    aCanvas.lineTo(aX2 + px * narrow_half, aY2 + py * narrow_half);
+    aCanvas.lineTo(aX2 - px * narrow_half, aY2 - py * narrow_half);
+    aCanvas.lineTo(aX1 - px * wide_half, aY1 - py * wide_half);
+    aCanvas.closePath();
+    aCanvas.fill();
+    aCanvas.globalAlpha = 1;
 }
 
 /** Chevrons (>>>) at the midpoint of a line */
 function drawChevronEdge(
-    aC: CanvasRenderingContext2D,
+    aCanvas: CanvasRenderingContext2D,
     aX1: number, aY1: number, aX2: number, aY2: number,
     aColor: string | CanvasGradient, aAlpha = 1,
 ): void {
@@ -372,13 +413,13 @@ function drawChevronEdge(
     const len = Math.sqrt(dx * dx + dy * dy);
     if (len < 2) { return; }
 
-    aC.globalAlpha = aAlpha;
-    aC.strokeStyle = aColor;
-    aC.lineWidth = Math.max(1, 1.5 * zoom);
-    aC.beginPath();
-    aC.moveTo(aX1, aY1);
-    aC.lineTo(aX2, aY2);
-    aC.stroke();
+    aCanvas.globalAlpha = aAlpha;
+    aCanvas.strokeStyle = aColor;
+    aCanvas.lineWidth = Math.max(1, 1.5 * zoom);
+    aCanvas.beginPath();
+    aCanvas.moveTo(aX1, aY1);
+    aCanvas.lineTo(aX2, aY2);
+    aCanvas.stroke();
 
     const ux = dx / len;
     const uy = dy / len;
@@ -387,33 +428,33 @@ function drawChevronEdge(
     const mx = (aX1 + aX2) / 2;
     const my = (aY1 + aY2) / 2;
 
-    aC.lineWidth = Math.max(1, 1.2 * zoom);
+    aCanvas.lineWidth = Math.max(1, 1.2 * zoom);
     for (let i = -1; i <= 1; i++) {
         const cx = mx + ux * i * gap;
         const cy = my + uy * i * gap;
-        aC.beginPath();
-        aC.moveTo(cx - ux * chev_size - uy * chev_size, cy - uy * chev_size + ux * chev_size);
-        aC.lineTo(cx, cy);
-        aC.lineTo(cx - ux * chev_size + uy * chev_size, cy - uy * chev_size - ux * chev_size);
-        aC.stroke();
+        aCanvas.beginPath();
+        aCanvas.moveTo(cx - ux * chev_size - uy * chev_size, cy - uy * chev_size + ux * chev_size);
+        aCanvas.lineTo(cx, cy);
+        aCanvas.lineTo(cx - ux * chev_size + uy * chev_size, cy - uy * chev_size - ux * chev_size);
+        aCanvas.stroke();
     }
-    aC.globalAlpha = 1;
+    aCanvas.globalAlpha = 1;
 }
 
 /** Simple straight line (no direction indicator) */
 function drawLineEdge(
-    aC: CanvasRenderingContext2D,
+    aCanvas: CanvasRenderingContext2D,
     aX1: number, aY1: number, aX2: number, aY2: number,
     aColor: string | CanvasGradient, aAlpha = 1,
 ): void {
-    aC.globalAlpha = aAlpha;
-    aC.strokeStyle = aColor;
-    aC.lineWidth = Math.max(1, 1.5 * zoom);
-    aC.beginPath();
-    aC.moveTo(aX1, aY1);
-    aC.lineTo(aX2, aY2);
-    aC.stroke();
-    aC.globalAlpha = 1;
+    aCanvas.globalAlpha = aAlpha;
+    aCanvas.strokeStyle = aColor;
+    aCanvas.lineWidth = Math.max(1, 1.5 * zoom);
+    aCanvas.beginPath();
+    aCanvas.moveTo(aX1, aY1);
+    aCanvas.lineTo(aX2, aY2);
+    aCanvas.stroke();
+    aCanvas.globalAlpha = 1;
 }
 
 // ------------------------------------------------------------
@@ -453,6 +494,7 @@ function drawNodes(aW: number, aH: number): void {
         const zoom2 = 2 * zoom;
         const zoom3 = 3 * zoom;
         const zoom4 = 4 * zoom;
+        const zoom8 = 8 * zoom;
 
         ctx.globalAlpha = node_alpha;
         ctx.fillStyle = color;
@@ -468,8 +510,7 @@ function drawNodes(aW: number, aH: number): void {
             ctx.shadowBlur = Math.max(12, 20 * zoom);
             ctx.strokeStyle = '#FFD700';
             ctx.lineWidth = Math.max(2, zoom3);
-            const halo_r = Math.min(zoom4 + zoom2, (sw + zoom4 * 2) * 0.08);
-            drawBox(ctx, sx, sy, sw + zoom4 * 2, sh + zoom4 * 2, halo_r, true);
+            drawBox(ctx, sx, sy, sw + zoom8, sh + zoom8, r + zoom4, true);
             ctx.restore();
             ctx.globalAlpha = node_alpha;
         }
@@ -494,22 +535,22 @@ function drawNodes(aW: number, aH: number): void {
     }
 }
 
-function drawBox(aC: CanvasRenderingContext2D, aCx: number, aCy: number, aW: number, aH: number, aR: number, aStrokeOnly = false): void {
+function drawBox(aCanvas: CanvasRenderingContext2D, aCx: number, aCy: number, aW: number, aH: number, aR: number, aStrokeOnly = false): void {
     const x = aCx - aW / 2;
     const y = aCy - aH / 2;
-    aC.beginPath();
-    aC.moveTo(x + aR, y);
-    aC.lineTo(x + aW - aR, y);
-    aC.arcTo(x + aW, y, x + aW, y + aR, aR);
-    aC.lineTo(x + aW, y + aH - aR);
-    aC.arcTo(x + aW, y + aH, x + aW - aR, y + aH, aR);
-    aC.lineTo(x + aR, y + aH);
-    aC.arcTo(x, y + aH, x, y + aH - aR, aR);
-    aC.lineTo(x, y + aR);
-    aC.arcTo(x, y, x + aR, y, aR);
-    aC.closePath();
-    if (!aStrokeOnly) { aC.fill(); }
-    aC.stroke();
+    aCanvas.beginPath();
+    aCanvas.moveTo(x + aR, y);
+    aCanvas.lineTo(x + aW - aR, y);
+    aCanvas.arcTo(x + aW, y, x + aW, y + aR, aR);
+    aCanvas.lineTo(x + aW, y + aH - aR);
+    aCanvas.arcTo(x + aW, y + aH, x + aW - aR, y + aH, aR);
+    aCanvas.lineTo(x + aR, y + aH);
+    aCanvas.arcTo(x, y + aH, x, y + aH - aR, aR);
+    aCanvas.lineTo(x, y + aR);
+    aCanvas.arcTo(x, y, x + aR, y, aR);
+    aCanvas.closePath();
+    if (!aStrokeOnly) { aCanvas.fill(); }
+    aCanvas.stroke();
 }
 
 // ------------------------------------------------------------
@@ -708,14 +749,15 @@ function minimapPanTo(aSx: number, aSy: number): void {
 // ------------------------------------------------------------
 // Hit testing
 // ------------------------------------------------------------
-function hitTestNode(aScreenX: number, aScreenY: number): LayoutNode | null {
+
+function hitTestNode(aPosX: number, aPosY: number): LayoutNode | null {
     for (let i = layout_nodes.length - 1; i >= 0; i--) {
         const ln = layout_nodes[i];
         if (isNodeFiltered(ln.node)) { continue; }
         const [sx, sy] = worldToScreen(ln.x, ln.y);
         const hw = (ln.w * zoom) / 2;
         const hh = (NODE_H * zoom) / 2;
-        if (aScreenX >= sx - hw && aScreenX <= sx + hw && aScreenY >= sy - hh && aScreenY <= sy + hh) {
+        if (aPosX >= sx - hw && aPosX <= sx + hw && aPosY >= sy - hh && aPosY <= sy + hh) {
             return ln;
         }
     }
@@ -725,12 +767,13 @@ function hitTestNode(aScreenX: number, aScreenY: number): LayoutNode | null {
 // ------------------------------------------------------------
 // Canvas events: pan, node drag, zoom, selection
 // ------------------------------------------------------------
-function attachCanvasEvents(aC: HTMLCanvasElement): void {
-    aC.addEventListener('mousedown', (e: MouseEvent) => {
+
+function attachCanvasEvents(aCanvas: HTMLCanvasElement): void {
+    aCanvas.addEventListener('mousedown', (e: MouseEvent) => {
         if (e.button !== 0) { return; }
         e.preventDefault();
 
-        const rect = aC.getBoundingClientRect();
+        const rect = aCanvas.getBoundingClientRect();
         const mx = e.clientX - rect.left;
         const my = e.clientY - rect.top;
 
@@ -738,7 +781,7 @@ function attachCanvasEvents(aC: HTMLCanvasElement): void {
         if (isInMinimap(mx, my)) {
             is_dragging_minimap = true;
             minimapPanTo(mx, my);
-            aC.style.cursor = 'crosshair';
+            aCanvas.style.cursor = 'crosshair';
             return;
         }
 
@@ -751,7 +794,7 @@ function attachCanvasEvents(aC: HTMLCanvasElement): void {
             const [sx, sy] = worldToScreen(hit.x, hit.y);
             drag_offset_x = mx - sx;
             drag_offset_y = my - sy;
-            aC.style.cursor = 'move';
+            aCanvas.style.cursor = 'move';
             // Auto-pause: pause sim while dragging
             if (auto_pause_during_drag && sim_running) {
                 stopSimulation();
@@ -763,21 +806,21 @@ function attachCanvasEvents(aC: HTMLCanvasElement): void {
             pan_start_y = e.clientY;
             cam_start_x = cam_x;
             cam_start_y = cam_y;
-            aC.style.cursor = 'grabbing';
+            aCanvas.style.cursor = 'grabbing';
         }
         draw();
     });
 
     window.addEventListener('mousemove', (e: MouseEvent) => {
         if (is_dragging_minimap) {
-            const rect = aC.getBoundingClientRect();
+            const rect = aCanvas.getBoundingClientRect();
             const mx = e.clientX - rect.left;
             const my = e.clientY - rect.top;
             minimapPanTo(mx, my);
             return;
         }
         if (is_dragging_node && drag_node) {
-            const rect = aC.getBoundingClientRect();
+            const rect = aCanvas.getBoundingClientRect();
             const mx = e.clientX - rect.left;
             const my = e.clientY - rect.top;
             drag_node.x = (mx - drag_offset_x - cam_x) / zoom;
@@ -795,13 +838,13 @@ function attachCanvasEvents(aC: HTMLCanvasElement): void {
         if (e.button !== 0) { return; }
         if (is_dragging_minimap) {
             is_dragging_minimap = false;
-            aC.style.cursor = 'grab';
+            aCanvas.style.cursor = 'grab';
             return;
         }
         if (is_dragging_node) {
             is_dragging_node = false;
             drag_node = null;
-            aC.style.cursor = 'grab';
+            aCanvas.style.cursor = 'grab';
             // Resume sim if enabled (auto-pause or normal mode)
             if (sim_enabled) {
                 startSimulation();
@@ -813,13 +856,13 @@ function attachCanvasEvents(aC: HTMLCanvasElement): void {
         if (is_panning) {
             is_panning = false;
             was_panning = false;
-            aC.style.cursor = 'grab';
+            aCanvas.style.cursor = 'grab';
             saveState();
         }
     });
 
-    aC.addEventListener('dblclick', (e: MouseEvent) => {
-        const rect = aC.getBoundingClientRect();
+    aCanvas.addEventListener('dblclick', (e: MouseEvent) => {
+        const rect = aCanvas.getBoundingClientRect();
         const mx = e.clientX - rect.left;
         const my = e.clientY - rect.top;
         // Ignore double-click on minimap
@@ -837,15 +880,15 @@ function attachCanvasEvents(aC: HTMLCanvasElement): void {
             // Focus on the selected node and all recursively connected nodes
             focusOnNode(selected_node_id);
         } else {
-            // Double-click on background: fit graph to view
+            // Double-click on baCanvaskground: fit graph to view
             centerOnNodes();
             draw();
         }
     });
 
-    aC.addEventListener('wheel', (e: WheelEvent) => {
+    aCanvas.addEventListener('wheel', (e: WheelEvent) => {
         e.preventDefault();
-        const rect = aC.getBoundingClientRect();
+        const rect = aCanvas.getBoundingClientRect();
         const mx = e.clientX - rect.left;
         const my = e.clientY - rect.top;
 
@@ -855,8 +898,8 @@ function attachCanvasEvents(aC: HTMLCanvasElement): void {
             const world_y = (my - minimap_transform.my) / minimap_transform.scale + minimap_transform.wMinY;
             const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
             zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, zoom * factor));
-            cam_x = aC.clientWidth / 2 - world_x * zoom;
-            cam_y = aC.clientHeight / 2 - world_y * zoom;
+            cam_x = aCanvas.clientWidth / 2 - world_x * zoom;
+            cam_y = aCanvas.clientHeight / 2 - world_y * zoom;
             saveState();
             draw();
             return;
@@ -875,7 +918,7 @@ function attachCanvasEvents(aC: HTMLCanvasElement): void {
         draw();
     }, { passive: false });
 
-    aC.style.cursor = 'grab';
+    aCanvas.style.cursor = 'grab';
 }
 
 // ------------------------------------------------------------
@@ -908,7 +951,7 @@ function simulationStep(): void {
     if (!sim_running) { return; }
 
     for (let step = 0; step < sim_vars.stepsPerFrame; step++) {
-        let total_movement = 0;
+        total_sim_energy = 0;
 
         // Build index
         const node_index = new Map<string, number>();
@@ -1016,7 +1059,7 @@ function simulationStep(): void {
         }
 
         // Apply forces with velocity damping
-        const max_speed = 15;
+        const max_speed = 20;
         for (let i = 0; i < n; i++) {
             if (isNodeFiltered(layout_nodes[i].node)) { continue; }
             // Don't move the node being dragged
@@ -1037,14 +1080,16 @@ function simulationStep(): void {
 
             ln.x += ln.vx;
             ln.y += ln.vy;
-            total_movement += Math.abs(ln.vx) + Math.abs(ln.vy);
+            total_sim_energy += Math.abs(ln.vx) + Math.abs(ln.vy);
         }
 
         // Check equilibrium
-        if (total_movement < sim_vars.threshold) {
+        if (total_sim_energy < sim_vars.threshold) {
             stopSimulation();
             draw();
             return;
+        } else {
+            updateFooter();
         }
     }
 
@@ -1353,13 +1398,17 @@ function toggleSettings(aPersist = true): void {
     if (aPersist) { vscode.postMessage({ type: 'updateSetting', key: 'graphSettingsVisible', value: true }); }
 }
 
-function sliderRow(aId: string, aLabel: string, aMin: number, aMax: number, aStep: number, aValue: number, aDefaultVal: number): string {
-    return `<div class="settings-row">
+function resetBtn(aDefaultKey: string): string {
+    return `<button class="settings-reset-btn" data-defkey="${aDefaultKey}" title="Reset to default value">\u21B6</button>`;
+}
+
+function inputRow(aId: string, aLabel: string, aSimKey: keyof SimVars, aValue: number, aDefaultKey: string): string {
+    const [lo, hi] = SIM_CLAMP[aSimKey];
+    return `<div class="settings-row-inline">
         <label>${aLabel}</label>
-        <div class="settings-slider-row">
-            <input type="range" id="s-${aId}" min="${aMin}" max="${aMax}" step="${aStep}" value="${aValue}">
-            <span id="v-${aId}">${aValue}</span>
-            <button class="settings-reset-btn" data-reset="${aId}" data-default="${aDefaultVal}" title="Reset to default value">\u21BA</button>
+        <div class="settings-input-row">
+            <input type="number" id="s-${aId}" min="${lo}" max="${hi}" value="${aValue}" data-simkey="${aSimKey}">
+            ${resetBtn(aDefaultKey)}
         </div>
     </div>`;
 }
@@ -1369,17 +1418,17 @@ function sliderRow(aId: string, aLabel: string, aMin: number, aMax: number, aSte
 // ------------------------------------------------------------
 function updateFooter(): void {
     const footer = document.getElementById('footer')!;
+    footer.innerHTML =
+        `<span><span class="info-label">Energy:</span> <span class="info-value">${total_sim_energy.toFixed(2)}</span></span>`;
     if (!selected_node_id) {
-        footer.innerHTML = '';
         return;
     }
     const ln = layout_nodes.find(l => l.node.id === selected_node_id);
     if (!ln) {
-        footer.innerHTML = '';
         return;
     }
     const n = ln.node;
-    footer.innerHTML =
+    footer.innerHTML = footer.innerHTML +
         `<span><span class="info-type-swatch" style="background:${n.color}"></span><span class="info-value">${escapeHtml(n.label)}</span></span>` +
         `<span><span class="info-label">Type:</span> <span class="info-value">${escapeHtml(n.type)}</span></span>` +
         `<span><span class="info-label">Path:</span> <span class="info-value" title="${escapeHtml(n.sourcePath)}">${escapeHtml(n.sourcePath)}</span></span>`;
@@ -1549,9 +1598,12 @@ function buildNodeColorPickersHtml(): string {
     if (present_types.size === 0) { return ''; }
     let inner = '';
     for (const [type, color] of present_types) {
-        inner += `<label class="settings-inline">${type}
-            <input type="color" id="s-color-${type}" value="${color}">
-        </label>`;
+        inner += `<div class="settings-row-inline">
+            <label class="settings-inline">${type}
+                <input type="color" id="s-color-${type}" value="${color}">
+            </label>
+            <button class="settings-reset-btn" data-resetcolor="${type}" title="Reset to default color">\u21B6</button>
+        </div>`;
     }
     return sectionHtml('colors', 'Node Colors', inner);
 }
@@ -1570,40 +1622,54 @@ function sectionHtml(aId: string, aTitle: string, aContent: string): string {
 
 function buildSettingsHtml(): string {
     const edges_content = `
-        <label class="settings-inline">Style
+        <div class="settings-row-inline">
+            <label>Style</label>
             <select id="s-edgeStyle">
                 <option value="tapered"${edge_style === 'tapered' ? ' selected' : ''}>Tapered</option>
                 <option value="chevrons"${edge_style === 'chevrons' ? ' selected' : ''}>Chevrons</option>
                 <option value="line"${edge_style === 'line' ? ' selected' : ''}>Line</option>
             </select>
-        </label>
-        <label class="settings-inline">Direction
+            ${resetBtn('edgeStyle')}
+        </div>
+        <div class="settings-row-inline">
+            <label>Direction</label>
             <select id="s-edgeDirection">
-                <option value="parent-to-child"${edge_direction === GraphEdgeDirection.USED_BY_TARGETS ? ' selected' : ''}>Used by targets</option>
-                <option value="child-to-parent"${edge_direction === GraphEdgeDirection.TARGETS_USED_BY ? ' selected' : ''}>Targets used by</option>
+                <option value="${GraphEdgeDirection.USED_BY_TARGETS}"${edge_direction === GraphEdgeDirection.USED_BY_TARGETS ? ' selected' : ''}>Used by targets</option>
+                <option value="${GraphEdgeDirection.TARGETS_USED_BY}"${edge_direction === GraphEdgeDirection.TARGETS_USED_BY ? ' selected' : ''}>Targets used by</option>
             </select>
-        </label>
-        ${sliderRow('taperedWidth', 'Tapered Width', 0.1, 5.0, 0.1, tapered_width_factor, 2.0)}`;
+            ${resetBtn('edgeDirection')}
+        </div>
+        ${inputRow('taperedWidth', 'Tapered Width', 'taperedWidth', sim_vars.taperedWidth, 'taperedWidth')}`;
 
     const sim_content = `
-        ${sliderRow('repulsion', 'Repulsion', 500, 100000, 500, sim_vars.repulsion, SIM_DEFAULTS.repulsion)}
-        ${sliderRow('attraction', 'Attraction', 0.0001, 0.1, 0.001, sim_vars.attraction, SIM_DEFAULTS.attraction)}
-        ${sliderRow('gravity', 'Gravity', 0.001, 0.2, 0.001, sim_vars.gravity, SIM_DEFAULTS.gravity)}
-        ${sliderRow('linkLength', 'Link Length', 0.001, 1.0, 0.001, sim_vars.linkLength, SIM_DEFAULTS.linkLength)}
-        ${sliderRow('minDist', 'Min Distance', 20, 10000, 10, sim_vars.minDistance, SIM_DEFAULTS.minDistance)}
-        ${sliderRow('steps', 'Steps/Frame', 1, 10, 1, sim_vars.stepsPerFrame, SIM_DEFAULTS.stepsPerFrame)}
-        ${sliderRow('threshold', 'Threshold', 0.001, 5, 0.001, sim_vars.threshold, SIM_DEFAULTS.threshold)}
-        ${sliderRow('damping', 'Damping', 0.5, 1.0, 0.01, sim_vars.damping, SIM_DEFAULTS.damping)}`;
+        ${inputRow('repulsion', 'Repulsion', 'repulsion', sim_vars.repulsion, 'simRepulsion')}
+        ${inputRow('attraction', 'Attraction', 'attraction', sim_vars.attraction, 'simAttraction')}
+        ${inputRow('gravity', 'Gravity', 'gravity', sim_vars.gravity, 'simGravity')}
+        ${inputRow('linkLength', 'Link Length', 'linkLength', sim_vars.linkLength, 'simLinkLength')}
+        ${inputRow('minDist', 'Min Distance', 'minDistance', sim_vars.minDistance, 'simMinDistance')}
+        ${inputRow('steps', 'Steps/Frame', 'stepsPerFrame', sim_vars.stepsPerFrame, 'simStepsPerFrame')}
+        ${inputRow('threshold', 'Threshold', 'threshold', sim_vars.threshold, 'simThreshold')}
+        ${inputRow('damping', 'Damping', 'damping', sim_vars.damping, 'simDamping')}`;
 
     const display_content = `
-        <label class="settings-checkbox"><input type="checkbox" id="s-minimap"${minimap_enabled ? ' checked' : ''}> Show minimap</label>`;
+        <div class="settings-row-inline">
+            <label class="settings-checkbox">
+            <input type="checkbox" id="s-minimap"${minimap_enabled ? ' checked' : ''}> Show minimap</label>
+            ${resetBtn('minimap')}
+        </div>`;
 
     const controls_content = `
-        <label class="settings-checkbox"><input type="checkbox" id="s-autoPause"${auto_pause_during_drag ? ' checked' : ''}> Auto-pause sim during node drag</label>
-        <button id="s-startstop" class="settings-btn">${sim_enabled ? '\u23F8 Stop Simulation' : '\u25B6 Start Simulation'}</button>
-        <button id="s-restart" class="settings-btn">\u21BA Restart Simulation</button>
-        <button id="s-fitview" class="settings-btn">\u2922 Fit to View</button>
-        <button id="s-screenshot" class="settings-btn">\uD83D\uDCF7 Screenshot (PNG)</button>`;
+        <div class="settings-row-inline">
+            <label class="settings-checkbox">
+            <input type="checkbox" id="s-autoPause"${auto_pause_during_drag ? ' checked' : ''}> Pause during node dragging</label>
+            ${resetBtn('autoPauseDrag')}
+        </div>
+        <div class="settings-row-inline">
+            <label>Simulation</label>
+            <button id="s-startstop" class="settings-row-inline-button">${sim_enabled ? '\u23F8 Stop' : '\u25B6 Start'}</button>
+            ${resetBtn('simEnabled')}
+        </div>
+        <button id="s-restart" class="full-width-btn">\u21BA Restart Simulation</button>`;
 
     return `
 <div class="settings-body">
@@ -1618,7 +1684,7 @@ function buildSettingsHtml(): string {
 function updateStartStopBtn(): void {
     const btn = settings_panel?.querySelector('#s-startstop') as HTMLButtonElement | null;
     if (btn) {
-        btn.textContent = sim_enabled ? '\u23F8 Stop Simulation' : '\u25B6 Start Simulation';
+        btn.textContent = sim_enabled ? '\u23F8 Stop' : '\u25B6 Start';
     }
 }
 
@@ -1639,8 +1705,8 @@ function attachSettingsEvents(): void {
         });
     });
 
-    // Slider ID -> workspace setting key mapping
-    const slider_setting_keys: Record<string, string> = {
+    // Input ID -> workspace setting key mapping
+    const input_setting_keys: Record<string, string> = {
         's-repulsion': 'graphSimRepulsion',
         's-attraction': 'graphSimAttraction',
         's-gravity': 'graphSimGravity',
@@ -1663,9 +1729,8 @@ function attachSettingsEvents(): void {
     // Edge direction
     const dir_sel = settings_panel.querySelector('#s-edgeDirection') as HTMLSelectElement;
     dir_sel.addEventListener('change', () => {
-        edge_direction = dir_sel.value as typeof edge_direction;
-        const setting_val = edge_direction === GraphEdgeDirection.USED_BY_TARGETS ? 'inverse' : 'dependency';
-        vscode.postMessage({ type: 'updateSetting', key: 'graphEdgeDirection', value: setting_val });
+        edge_direction = dir_sel.value as GraphEdgeDirection;
+        vscode.postMessage({ type: 'updateSetting', key: 'graphEdgeDirection', value: edge_direction });
         // If in focus mode, rebuild subgraph with new direction
         if (focused_node_id) {
             focus_visible_ids = buildConnectedSubgraph(focused_node_id);
@@ -1689,49 +1754,18 @@ function attachSettingsEvents(): void {
         draw();
     });
 
-    // Sliders
-    const sliders: [string, string, (aV: number) => void][] = [
-        ['s-repulsion', 'v-repulsion', aV => { sim_vars.repulsion = aV; }],
-        ['s-attraction', 'v-attraction', aV => { sim_vars.attraction = aV; }],
-        ['s-gravity', 'v-gravity', aV => { sim_vars.gravity = aV; }],
-        ['s-linkLength', 'v-linkLength', aV => { sim_vars.linkLength = aV; }],
-        ['s-minDist', 'v-minDist', aV => { sim_vars.minDistance = aV; }],
-        ['s-steps', 'v-steps', aV => { sim_vars.stepsPerFrame = Math.round(aV); }],
-        ['s-threshold', 'v-threshold', aV => { sim_vars.threshold = aV; }],
-        ['s-damping', 'v-damping', aV => { sim_vars.damping = aV; }],
-        ['s-taperedWidth', 'v-taperedWidth', aV => { sim_vars.taperedWidth = aV; }],
-    ];
-
-    for (const [slider_id, value_id, setter] of sliders) {
-        const slider = settings_panel.querySelector(`#${slider_id}`) as HTMLInputElement | null;
-        const value_span = settings_panel.querySelector(`#${value_id}`) as HTMLSpanElement | null;
-        if (!slider || !value_span) { continue; }
-        slider.addEventListener('input', () => {
-            const v = parseFloat(slider.value);
-            setter(v);
-            value_span.textContent = String(v);
-            const setting_key = slider_setting_keys[slider_id];
+    // Number inputs with clamping
+    settings_panel.querySelectorAll<HTMLInputElement>('input[type="number"][data-simkey]').forEach(input => {
+        const sim_key = input.dataset.simkey as keyof SimVars;
+        input.addEventListener('change', () => {
+            const raw = parseFloat(input.value);
+            if (isNaN(raw)) { input.value = String(sim_vars[sim_key]); return; }
+            const clamped = clampSimVar(sim_key, raw);
+            sim_vars[sim_key] = sim_key === 'stepsPerFrame' ? Math.round(clamped) : clamped;
+            input.value = String(sim_vars[sim_key]);
+            const setting_key = input_setting_keys[input.id];
             if (setting_key) {
-                vscode.postMessage({ type: 'updateSetting', key: setting_key, value: v });
-            }
-            startSimulation();
-        });
-    }
-
-    // Reset buttons (one per param)
-    settings_panel.querySelectorAll('.settings-reset-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const id = (btn as HTMLElement).dataset.reset!;
-            const def = parseFloat((btn as HTMLElement).dataset.default!);
-            const slider = settings_panel!.querySelector(`#s-${id}`) as HTMLInputElement;
-            const value_span = settings_panel!.querySelector(`#v-${id}`) as HTMLSpanElement;
-            slider.value = String(def);
-            value_span.textContent = String(def);
-            const match = sliders.find(s => s[0] === `s-${id}`);
-            if (match) { match[2](def); }
-            const setting_key = slider_setting_keys[`s-${id}`];
-            if (setting_key) {
-                vscode.postMessage({ type: 'updateSetting', key: setting_key, value: def });
+                vscode.postMessage({ type: 'updateSetting', key: setting_key, value: sim_vars[sim_key] });
             }
             startSimulation();
         });
@@ -1758,6 +1792,81 @@ function attachSettingsEvents(): void {
             vscode.postMessage({ type: 'updateSetting', key: 'graphNodeColors', value: color_map });
         });
     }
+
+    // Reset buttons — restore any widget to its default value from provider_defaults
+    // Handles: number inputs (data-defkey), selects, checkboxes, and color pickers (data-resetcolor)
+    settings_panel.querySelectorAll<HTMLButtonElement>('.settings-reset-btn[data-defkey]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const def_key = btn.dataset.defkey!;
+            const def_val = provider_defaults[def_key];
+            if (def_val === undefined) { return; }
+            const row = btn.closest('.settings-row, .settings-row-inline');
+            if (!row) { return; }
+
+            // Number input
+            const num_input = row.querySelector<HTMLInputElement>('input[type="number"]');
+            if (num_input) {
+                const sim_key = num_input.dataset.simkey as keyof SimVars;
+                const clamped = clampSimVar(sim_key, def_val);
+                sim_vars[sim_key] = sim_key === 'stepsPerFrame' ? Math.round(clamped) : clamped;
+                num_input.value = String(sim_vars[sim_key]);
+                const setting_key = input_setting_keys[num_input.id];
+                if (setting_key) { vscode.postMessage({ type: 'updateSetting', key: setting_key, value: sim_vars[sim_key] }); }
+                startSimulation();
+                return;
+            }
+
+            // Select
+            const select = row.querySelector<HTMLSelectElement>('select');
+            if (select) {
+                select.value = String(def_val);
+                select.dispatchEvent(new Event('change'));
+                return;
+            }
+
+            // Checkbox
+            const checkbox = row.querySelector<HTMLInputElement>('input[type="checkbox"]');
+            if (checkbox) {
+                checkbox.checked = !!def_val;
+                checkbox.dispatchEvent(new Event('change'));
+                return;
+            }
+
+            // simEnabled toggle (start/stop button)
+            if (def_key === 'simEnabled') {
+                sim_enabled = !!def_val;
+                if (sim_enabled) { startSimulation(); } else { stopSimulation(); }
+                updateStartStopBtn();
+                vscode.postMessage({ type: 'updateSetting', key: 'graphSimEnabled', value: sim_enabled });
+                return;
+            }
+        });
+    });
+
+    // Color picker reset buttons
+    settings_panel.querySelectorAll<HTMLButtonElement>('.settings-reset-btn[data-resetcolor]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const type = btn.dataset.resetcolor!;
+            const def_color = provider_defaults.nodeColors?.[type];
+            if (!def_color) { return; }
+            const picker = settings_panel!.querySelector(`#s-color-${type}`) as HTMLInputElement | null;
+            if (!picker) { return; }
+            picker.value = def_color;
+            for (const n of all_nodes) {
+                if (n.type === type) { n.color = def_color; }
+            }
+            draw();
+            buildFilterCheckboxes();
+            // Persist all node colors
+            const color_map: Record<string, string> = {};
+            const present = new Set(all_nodes.map(n => n.type));
+            for (const t of present) {
+                const node = all_nodes.find(n => n.type === t);
+                if (node) { color_map[t] = node.color; }
+            }
+            vscode.postMessage({ type: 'updateSetting', key: 'graphNodeColors', value: color_map });
+        });
+    });
 
     // Start/Stop simulation
     const start_stop_btn = settings_panel.querySelector('#s-startstop') as HTMLButtonElement;
@@ -1807,7 +1916,7 @@ function takeScreenshot(): void {
 // ------------------------------------------------------------
 function applySettingsFromProvider(aS: any): void {
     if (aS.edgeDirection !== undefined) {
-        edge_direction = aS.edgeDirection === 'inverse' ? GraphEdgeDirection.USED_BY_TARGETS : GraphEdgeDirection.TARGETS_USED_BY;
+        edge_direction = aS.edgeDirection as GraphEdgeDirection || GraphEdgeDirection.TARGETS_USED_BY;
     }
     if (aS.edgeStyle !== undefined) { edge_style = aS.edgeStyle as typeof edge_style; }
     if (aS.taperedWidth !== undefined) { sim_vars.taperedWidth = aS.taperedWidth; }
@@ -1833,9 +1942,8 @@ window.addEventListener('message', (event: MessageEvent) => {
     const msg = event.data;
     switch (msg.type) {
         case 'update': {
-            if (msg.settings) {
-                applySettingsFromProvider(msg.settings);
-            }
+            if (msg.defaults) { provider_defaults = msg.defaults; }
+            if (msg.settings) { applySettingsFromProvider(msg.settings); }
             createGraph(msg.nodes as GraphNode[], msg.edges as GraphEdge[]);
             break;
         }

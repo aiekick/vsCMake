@@ -1,19 +1,11 @@
 import * as vscode from 'vscode';
 import { Target, TargetType } from '../cmake/types';
+import { wksConfigManager } from '../config/workspace/manager';
+import { WorkspaceConfigDefault } from '../config/workspace/default';
 
 // ------------------------------------------------------------
 // Constants
 // ------------------------------------------------------------
-
-const TARGET_COLORS: Record<TargetType, string> = {
-    EXECUTABLE: '#4CAF50',
-    STATIC_LIBRARY: '#2196F3',
-    SHARED_LIBRARY: '#FF9800',
-    MODULE_LIBRARY: '#9C27B0',
-    OBJECT_LIBRARY: '#607D8B',
-    INTERFACE_LIBRARY: '#00BCD4',
-    UTILITY: '#795548',
-};
 
 const TARGET_SHAPES: Record<TargetType, string> = {
     EXECUTABLE: 'diamond',
@@ -22,6 +14,7 @@ const TARGET_SHAPES: Record<TargetType, string> = {
     MODULE_LIBRARY: 'box',
     OBJECT_LIBRARY: 'box',
     INTERFACE_LIBRARY: 'ellipse',
+    SYSTEM_LIBRARY: 'ellipse',
     UTILITY: 'triangle',
 };
 
@@ -114,16 +107,8 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
     // ---- Data conversion ----
 
     private sendGraphData(): void {
-        const config = vscode.workspace.getConfiguration('CMakeGraph');
-
-        // Merge custom colors onto defaults
-        const custom_colors = config.get<Record<string, string>>('graphNodeColors', {});
-        const effective_colors: Record<string, string> = { ...TARGET_COLORS };
-        for (const [type, color] of Object.entries(custom_colors)) {
-            if (color && type in effective_colors) {
-                effective_colors[type as keyof typeof effective_colors] = color;
-            }
-        }
+        const s = wksConfigManager.settings;
+        const colors = s.graph.colors;
 
         const filtered = this.m_targets.filter(t => t.type !== 'UTILITY');
         const valid_ids = new Set(filtered.map(t => t.id));
@@ -132,7 +117,7 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
             id: t.id,
             label: t.name,
             type: t.type,
-            color: effective_colors[t.type] ?? TARGET_COLORS[t.type],
+            color: colors[t.type] ?? '#888888',
             shape: TARGET_SHAPES[t.type],
             sourcePath: t.paths.source,
         }));
@@ -144,25 +129,44 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
         );
 
         const settings = {
-            edgeDirection: config.get<GraphEdgeDirection>('graphEdgeDirection', GraphEdgeDirection.TARGETS_USED_BY),
-            edgeStyle: config.get<string>('graphEdgeStyle', 'tapered'),
-            taperedWidth: config.get<number>('graphTaperedWidth', 1.0),
-            simRepulsion: config.get<number>('graphSimRepulsion', 10000),
-            simAttraction: config.get<number>('graphSimAttraction', 0.1),
-            simGravity: config.get<number>('graphSimGravity', 0.001),
-            simLinkLength: config.get<number>('graphSimLinkLength', 0.1),
-            simMinDistance: config.get<number>('graphSimMinDistance', 50),
-            simStepsPerFrame: config.get<number>('graphSimStepsPerFrame', 2),
-            simThreshold: config.get<number>('graphSimThreshold', 0.1),
-            simDamping: config.get<number>('graphSimDamping', 0.85),
-            minimap: config.get<boolean>('graphMinimap', true),
-            autoPauseDrag: config.get<boolean>('graphAutoPauseDrag', false),
-            simEnabled: config.get<boolean>('graphSimEnabled', true),
-            settingsCollapse: config.get<Record<string, boolean>>('graphSettingsCollapse', { edges: false, colors: true, simulation: true, display: false, controls: false }),
-            settingsVisible: config.get<boolean>('graphSettingsVisible', false),
+            edgeDirection: s.graph.edges.edgeDirection,
+            edgeStyle: s.graph.edges.edgeStyle,
+            taperedWidth: s.graph.edges.taperedWidth,
+            simRepulsion: s.graph.simulation.params.repulsion,
+            simAttraction: s.graph.simulation.params.attraction,
+            simGravity: s.graph.simulation.params.gravity,
+            simLinkLength: s.graph.simulation.params.linkLength,
+            simMinDistance: s.graph.simulation.params.minDistance,
+            simStepsPerFrame: s.graph.simulation.params.stepsPerFrame,
+            simThreshold: s.graph.simulation.params.threshold,
+            simDamping: s.graph.simulation.params.damping,
+            minimap: s.graph.simulation.controls.minimap,
+            autoPauseDrag: s.graph.simulation.controls.autoPauseDrag,
+            simEnabled: s.graph.simulation.controls.simEnabled,
+            settingsCollapse: s.graph.simulation.controls.settingsCollapse,
+            settingsVisible: s.graph.simulation.controls.settingsVisible,
         };
 
-        this.m_view?.webview.postMessage({ type: 'update', nodes, edges, settings });
+        const d = WorkspaceConfigDefault.graph;
+        const defaults = {
+            edgeDirection: d.edges.edgeDirection,
+            edgeStyle: d.edges.edgeStyle,
+            taperedWidth: d.edges.taperedWidth,
+            simRepulsion: d.simulation.params.repulsion,
+            simAttraction: d.simulation.params.attraction,
+            simGravity: d.simulation.params.gravity,
+            simLinkLength: d.simulation.params.linkLength,
+            simMinDistance: d.simulation.params.minDistance,
+            simStepsPerFrame: d.simulation.params.stepsPerFrame,
+            simThreshold: d.simulation.params.threshold,
+            simDamping: d.simulation.params.damping,
+            minimap: d.simulation.controls.minimap,
+            autoPauseDrag: d.simulation.controls.autoPauseDrag,
+            simEnabled: d.simulation.controls.simEnabled,
+            nodeColors: d.colors,
+        };
+
+        this.m_view?.webview.postMessage({ type: 'update', nodes, edges, settings, defaults });
     }
 
     // ---- Message handling ----
@@ -188,9 +192,7 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
             }
 
             case 'updateSetting': {
-                const key = aMsg.key as string;
-                const value = aMsg.value;
-                vscode.workspace.getConfiguration('CMakeGraph').update(key, value, vscode.ConfigurationTarget.Workspace);
+                wksConfigManager.updateSetting(aMsg.key as string, aMsg.value);
                 break;
             }
         }
@@ -200,7 +202,7 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
         const workspace_name = vscode.workspace.name ?? 'project';
         const now = new Date();
         const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`;
-        const default_name = `${workspace_name}_dependency_graph_${timestamp}.png`;
+        const default_name = `${workspace_name}_graph_${timestamp}.png`;
         const uri = await vscode.window.showSaveDialog({
             defaultUri: vscode.Uri.file(default_name),
             filters: { 'PNG Image': ['png'] },
@@ -217,10 +219,10 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
     private getHtml(aWebview: vscode.Webview): string {
         const nonce = getNonce();
         const script_uri = aWebview.asWebviewUri(
-            vscode.Uri.joinPath(this.m_extensionUri, 'out', 'webview', 'dependency_graph_webview.js'),
+            vscode.Uri.joinPath(this.m_extensionUri, 'out', 'webview', 'graph_webview.js'),
         );
         const style_uri = aWebview.asWebviewUri(
-            vscode.Uri.joinPath(this.m_extensionUri, 'medias', 'css', 'dependency_graph.css'),
+            vscode.Uri.joinPath(this.m_extensionUri, 'medias', 'css', 'graph.css'),
         );
 
         return `<!DOCTYPE html>
@@ -231,7 +233,8 @@ export class DependencyGraphProvider implements vscode.WebviewViewProvider {
           content="default-src 'none';
                    style-src ${aWebview.cspSource} 'unsafe-inline';
                    script-src 'nonce-${nonce}';
-                   img-src ${aWebview.cspSource} blob: data:;">
+                   img-src ${aWebview.cspSource} blob: data:;
+                   connect-src ${aWebview.cspSource};">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="${style_uri}">
     <title>Dependency Graph</title>

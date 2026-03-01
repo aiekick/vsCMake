@@ -13,6 +13,9 @@ import { DependencyGraphProvider } from './providers/graph_provider';
 import { CMakeToolsIntegrationManager } from './cmake/cmake_tools_api';
 import { computeDirectLinks } from './cmake/direct_links_converter';
 import { debugDirectLinks, debugMissingLinks, debugSignatures } from './cmake/debug_direct_links';
+import { wksConfigManager } from './config/workspace/manager';
+import { appConfigManager } from './config/app/manager';
+
 // ------------------------------------------------------------
 // Types
 // ------------------------------------------------------------
@@ -43,6 +46,8 @@ let ws_state: vscode.Memento | null = null;
 
 const BUILD_DIR_STATE_KEY = 'CMakeGraph.buildDir';
 const ACTIVE_CONFIG_STATE_KEY = 'CMakeGraph.activeConfig';
+
+let debugMode = false;
 
 // ------------------------------------------------------------
 // Activation
@@ -166,12 +171,13 @@ export async function activate(aContext: vscode.ExtensionContext): Promise<void>
     cmake_manager.watch(aContext);
     aContext.subscriptions.push(cmake_manager);
 
+    aContext.subscriptions.push(wksConfigManager, appConfigManager);
+
     // Restore persisted config
     current_config = ws_state.get<string>(ACTIVE_CONFIG_STATE_KEY) || 'Release';
 
     // ── Initialize buildDir ──
-    const cfg = vscode.workspace.getConfiguration('CMakeGraph');
-    const saved_build = resolveSettingPath(cfg.get<string>('buildDir'))
+    const saved_build = wksConfigManager.resolvedBuildDir
         || ws_state.get<string>(BUILD_DIR_STATE_KEY)
         || null;
     if (saved_build) {
@@ -218,10 +224,14 @@ async function loadReply(): Promise<void> {
     try {
         last_reply = await api_client.loadApiFiles();
 
+        if (debugMode) {
+            // show issue about direct links in the reply
+            debugDirectLinks(last_reply);
+            debugMissingLinks(last_reply);
+            debugSignatures(last_reply);
+        }
+
         // compute direct links of targets
-        // debugDirectLinks(last_reply);
-        // debugMissingLinks(last_reply);
-        // debugSignatures(last_reply);
         last_reply = computeDirectLinks(last_reply);
 
         // Detect available configurations
@@ -314,22 +324,20 @@ async function cmdSelectBuildDir(aContext: vscode.ExtensionContext): Promise<voi
     });
     if (!folders?.length) { return; }
     const dir = folders[0].fsPath;
-    await vscode.workspace.getConfiguration('CMakeGraph').update(
-        'buildDir', dir, vscode.ConfigurationTarget.Workspace
-    );
+    await wksConfigManager.updateSetting('buildDir', dir);
     await initBuildDir(dir, aContext);
 }
 
 function getCmakePath(): string {
-    return resolveSettingPath(vscode.workspace.getConfiguration('CMakeGraph').get<string>('cmakePath')) || '';
+    return appConfigManager.resolvedCmakePath;
 }
 
 function getCtestPath(): string {
-    return resolveSettingPath(vscode.workspace.getConfiguration('CMakeGraph').get<string>('ctestPath')) || '';
+    return appConfigManager.resolvedCtestPath;
 }
 
 function getDefaultJobs(): number {
-    return vscode.workspace.getConfiguration('CMakeGraph').get<number>('defaultJobs', 0);
+    return appConfigManager.settings.defaultJobs;
 }
 
 async function cmdBuild(): Promise<void> {
@@ -668,7 +676,7 @@ async function cmdRefresh(): Promise<void> {
 async function cmdOpenSettings(): Promise<void> {
     await vscode.commands.executeCommand(
         'workbench.action.openSettings',
-        '@ext:aiekick.vscmake'
+        '@ext:aiekick.cmakegraph'
     );
 }
 
@@ -834,7 +842,7 @@ function extractNodeText(aNode: any): string {
 async function cmdRevealDependency(aNode: unknown): Promise<void> {
     if (!aNode || !outline_provider || !outline_view) { return; }
     const dep = aNode as { kind: string; target?: { id: string } };
-    if (dep.kind !== 'directLink' || !dep.target) { return; }
+    if (dep.kind !== 'dependency' || !dep.target) { return; }
     const target_node = outline_provider.findTargetNode(dep.target.id);
     if (!target_node) {
         vscode.window.showWarningMessage('CMakeGraph: target not found in outline.');
@@ -846,20 +854,6 @@ async function cmdRevealDependency(aNode: unknown): Promise<void> {
 // ------------------------------------------------------------
 // Helpers
 // ------------------------------------------------------------
-
-function getWorkspaceDir(): string | null {
-    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? null;
-}
-
-function resolveSettingPath(aValue: string | undefined): string | null {
-    if (!aValue) { return null; }
-    const ws = getWorkspaceDir();
-    if (ws) {
-        return aValue.replace(/\$\{workspaceFolder\}/g, ws);
-    }
-    if (aValue.includes('${workspaceFolder}')) { return null; }
-    return aValue;
-}
 
 async function pickTarget(): Promise<string | undefined> {
     if (!last_reply) { return undefined; }

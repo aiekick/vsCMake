@@ -21,14 +21,14 @@ async function main() {
 
     // Webview (Browser) context — bundles into a single IIFE file
     const webCtx = await esbuild.context({
-        entryPoints: ['src/webview/dependency_graph_webview.ts'],
+        entryPoints: ['src/webview/graph_webview.ts'],
         bundle: true,
         format: 'iife',
         minify: production,
         sourcemap: false,
         sourcesContent: false,
         platform: 'browser',
-        outfile: 'out/webview/dependency_graph_webview.js',
+        outfile: 'out/webview/graph_webview.js',
         logLevel: 'warning',
         plugins: [esbuildProblemMatcherPlugin]
     });

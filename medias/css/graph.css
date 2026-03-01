@@ -231,7 +231,7 @@ body {
     border-radius: 2px;
 }
 
-.settings-header button:hover {
+.settings-header:hover button {
     background: var(--vscode-toolbar-hoverBackground);
 }
 
@@ -279,52 +279,64 @@ body {
     font-size: 11px;
     border-radius: 2px;
     cursor: pointer;
+    min-width: 110px;
+    max-width: 120px;
 }
 
-.settings-row {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-}
-
-.settings-row>label {
+.settings-section label {
     font-size: 11px;
     white-space: nowrap;
 }
 
-.settings-slider-row {
+.settings-section button {
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: none;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-size: 11px;
+    border-radius: 2px;
+    cursor: pointer;
+}
+
+.full-width-btn {
+    width: 100%;
+    background: var(--vscode-button-background);
+    color: var(--vscode-button-foreground);
+    border: none;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-size: 11px;
+    border-radius: 2px;
+    cursor: pointer;
+}
+
+.settings-section button:hover {
+    background: var(--vscode-button-hoverBackground);
+}
+
+.settings-input-row {
     display: flex;
     align-items: center;
     gap: 4px;
 }
 
-.settings-slider-row input[type="range"] {
+.settings-input-row input[type="number"] {
     flex: 1;
-    min-width: 60px;
-    accent-color: var(--vscode-focusBorder);
-}
-
-.settings-slider-row span {
-    min-width: 44px;
-    text-align: right;
-    font-size: 10px;
-    color: var(--vscode-descriptionForeground);
-}
-
-.settings-reset-btn {
-    background: none;
-    border: 1px solid var(--vscode-panel-border);
-    color: var(--vscode-descriptionForeground);
-    cursor: pointer;
-    font-size: 12px;
-    padding: 0 4px;
+    min-width: 100px;
+    max-width: 120px;
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
     border-radius: 2px;
-    line-height: 18px;
+    padding: 2px 4px;
+    font-size: 11px;
+    font-family: var(--vscode-editor-font-family, monospace);
 }
 
-.settings-reset-btn:hover {
-    background: var(--vscode-toolbar-hoverBackground);
-    color: var(--vscode-editor-foreground);
+.settings-input-row input[type="number"]:focus {
+    outline: 1px solid var(--vscode-focusBorder);
+    border-color: var(--vscode-focusBorder);
 }
 
 .settings-inline {
@@ -355,25 +367,44 @@ body {
 }
 
 .settings-inline input[type="color"] {
-    width: 32px;
-    height: 22px;
+    min-width: 110px;
+    max-width: 120px;
+    height: 26px;
     padding: 0;
-    border: 1px solid var(--vscode-panel-border);
-    border-radius: 2px;
+    border: px solid var(--vscode-panel-border);
+    border-radius: 4px;
     cursor: pointer;
     background: none;
 }
 
-.settings-btn {
-    background: var(--vscode-button-background);
-    color: var(--vscode-button-foreground);
-    border: none;
-    padding: 4px 8px;
-    cursor: pointer;
-    font-size: 11px;
-    border-radius: 2px;
+.settings-row-inline {
+    display: flex;
+    align-items: center;
+    gap: 4px;
 }
 
-.settings-btn:hover {
-    background: var(--vscode-button-hoverBackground);
+.settings-row-inline-button {
+    min-width: 110px;
+    max-width: 120px;
+}
+
+.settings-row-inline>label {
+    flex: 1;
+    min-width: 0;
+}
+
+.settings-reset-btn {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    font-size: 12px;
+    line-height: 20px;
+    text-align: center;
+}
+
+/* vire les flèches des input[type=number] */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
 }

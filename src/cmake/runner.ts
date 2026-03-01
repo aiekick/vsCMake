@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import * as os from 'os';
 import { isWindows, isClInPath, captureVcvarsEnv, findDefaultVcvarsall } from './msvc_env';
 import { CMakeDiagnosticsManager } from './diagnostics_manager';
+import { appConfigManager } from '../config/app/manager';
 
 // ------------------------------------------------------------
 // Types
@@ -46,9 +47,9 @@ export class Runner {
     constructor(aState?: vscode.Memento, aDiagnosticsManager?: CMakeDiagnosticsManager) {
         this.m_state = aState;
         this.m_diagnosticsManager = aDiagnosticsManager;
-        const colorize = vscode.workspace.getConfiguration('CMakeGraph').get<boolean>('colorizeOutput', true);
+        const colorize = appConfigManager.settings.colorizeOutput;
         this.m_channel = colorize
-            ? vscode.window.createOutputChannel('CMakeGraph', 'vscmake-output')
+            ? vscode.window.createOutputChannel('CMakeGraph', 'cmakegraph-output')
             : vscode.window.createOutputChannel('CMakeGraph');
 
         // Restore persisted MSVC env from previous session
@@ -291,7 +292,7 @@ export class Runner {
         const id = this.m_nextId++;
         const label = `${aCmd} ${aArgs.join(' ')}`;
         const is_win = os.platform() === 'win32';
-        const clear_output = !silent && vscode.workspace.getConfiguration('CMakeGraph').get<boolean>('clearOutputBeforeRun', true);
+        const clear_output = !silent && appConfigManager.settings.clearOutputBeforeRun;
 
         const msvc_env = this.resolveMsvcEnv();
 

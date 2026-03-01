@@ -26,6 +26,6 @@ jobs:
         with:
           name: CMakeGraph
           tag_name: github.ref_name
-          files: ./vscmake-*.vsix
+          files: ./cmakegraph-*.vsix
           generate_release_notes: true
           draft: true

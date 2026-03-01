@@ -42,6 +42,7 @@ const TARGET_ICONS: Record<TargetType, string> = {
     MODULE_LIBRARY: 'library',
     OBJECT_LIBRARY: 'file-binary',
     INTERFACE_LIBRARY: 'symbol-interface',
+    SYSTEM_LIBRARY: 'ellipse',
     UTILITY: 'tools',
 };
 

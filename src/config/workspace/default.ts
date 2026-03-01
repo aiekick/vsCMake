@@ -1,43 +1,45 @@
-// On importe le namespace sous un autre nom (ex: AppTypes)
 import { WorkspaceConfig as WorkspaceTypes } from './types';
 
+// Default values for workspace (per-project) settings
+// Aligned with package.json "contributes.configuration.properties"
 export const WorkspaceConfigDefault: WorkspaceTypes.Settings = {
     general: {
-        buildDirectory: 'dist',
-        configType: 'debug',
+        buildDirectory: '${workspaceFolder}/build',
+        configType: 'Release',
     },
     graph: {
         colors: {
-            targetExecutable: '#ff4444',
-            targetLibraryShared: '#44ff44',
-            targetLibraryStatic: '#4444ff',
-            targetLibraryInterface: '#ffff44',
-            targetLibraryModule: '#ff44ff',
-            targetLibraryImported: '#44ffff',
-            targetLibrarySystem: '#888888',
+            EXECUTABLE: '#7f5be3',
+            STATIC_LIBRARY: '#2196F3',
+            SHARED_LIBRARY: '#52ff67',
+            MODULE_LIBRARY: '#9C27B0',
+            OBJECT_LIBRARY: '#cf6eff',
+            INTERFACE_LIBRARY: '#00BCD4',
+            SYSTEM_LIBRARY: '#c8ea32',
+            UTILITY: '#795548',
         },
         edges: {
-            edgeDirection: WorkspaceTypes.Graph.EdgeDirection.USED_BY_TARGETS,
+            edgeDirection: WorkspaceTypes.Graph.EdgeDirection.TARGETS_USED_BY,
             edgeStyle: WorkspaceTypes.Graph.EdgeStyle.TAPERED,
-            taperedWidth: 10,
+            taperedWidth: 1.0,
         },
         simulation: {
             params: {
-                repulsion: 1000,
-                attraction: 0.1,
-                gravity: 0.05,
-                linkLength: 50,
-                minDistance: 10,
-                stepsPerFrame: 1,
-                threshold: 0.1,
-                damping: 0.9,
+                repulsion: 10000,
+                attraction: 0.05,
+                gravity: 0.002,
+                linkLength: 0.1,
+                minDistance: 1000,
+                stepsPerFrame: 2,
+                threshold: 0.5,
+                damping: 0.85,
             },
             controls: {
                 minimap: true,
-                autoPauseDrag: true,
+                autoPauseDrag: false,
                 simEnabled: true,
-                settingsCollapse: { edges: false, colors: true },
-                settingsVisible: true,
+                settingsCollapse: { edges: false, colors: true, simulation: true, display: false, controls: false },
+                settingsVisible: false,
             },
         },
     },

@@ -99,6 +99,7 @@ export type TargetType =
     | 'MODULE_LIBRARY'
     | 'OBJECT_LIBRARY'
     | 'INTERFACE_LIBRARY'
+    | 'SYSTEM_LIBRARY'
     | 'UTILITY';
 
 export interface Target {
