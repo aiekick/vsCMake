@@ -13,6 +13,10 @@ import { Target, BacktraceGraph, BacktraceNode } from './types';
  *
  * A fragment is transitive if a dependency has a fragment with the
  * exact same full backtrace chain signature.
+ *
+ * Fragments that don't resolve to any project target are parsed as
+ * system libraries (Unix `-l<name>`, MSVC `<name>.lib`, full paths)
+ * and added as synthetic SYSTEM_LIBRARY leaf nodes.
  */
 export function computeDirectLinks(aReply: CmakeReply): CmakeReply {
     const artifact_to_id = buildArtifactMap(aReply.targets);
@@ -24,9 +28,19 @@ export function computeDirectLinks(aReply: CmakeReply): CmakeReply {
         target_sigs.set(t.id, getLinkSignatures(t));
     }
 
+    // Collect system libraries discovered across all targets.
+    // Maps synthetic ID → display name.
+    const sys_libs = new Map<string, string>();
+
     for (const t of aReply.targets) {
-        t.directLinks = findDirectLinks(t, artifact_to_id, by_id, target_sigs);
+        t.directLinks = findDirectLinks(t, artifact_to_id, by_id, target_sigs, sys_libs);
     }
+
+    // Create synthetic Target objects for every discovered system library
+    for (const [id, name] of sys_libs) {
+        aReply.targets.push(makeSysLibTarget(id, name));
+    }
+
     return aReply;
 }
 
@@ -73,6 +87,7 @@ function findDirectLinks(
     aArtifactToId: Map<string, string>,
     aById: Map<string, Target>,
     aTargetSigs: Map<string, Set<string>>,
+    aSysLibs: Map<string, string>,
 ): string[] {
     if (!t.link?.commandFragments || !t.backtraceGraph) return [];
 
@@ -108,11 +123,26 @@ function findDirectLinks(
         const sig = resolveChainSignature(bg, frag.backtrace);
         if (sig && dep_sigs.has(sig)) continue; // transitive
 
-        // Resolve fragment to a target ID
-        const id = findTargetByFragment(normalizePath(frag.fragment), aArtifactToId);
+        // Resolve fragment to a project target ID
+        const norm = normalizePath(frag.fragment);
+        const id = findTargetByFragment(norm, aArtifactToId);
         if (id && id !== t.id && !seen.has(id)) {
             seen.add(id);
             result.push(id);
+            continue;
+        }
+
+        // Not a project target — try to parse as a system library
+        if (!id) {
+            const lib_name = parseSystemLibraryName(norm);
+            if (lib_name) {
+                const sys_id = SYSLIB_ID_PREFIX + lib_name;
+                aSysLibs.set(sys_id, lib_name);
+                if (!seen.has(sys_id)) {
+                    seen.add(sys_id);
+                    result.push(sys_id);
+                }
+            }
         }
     }
     return result;
@@ -155,4 +185,67 @@ function normalizePath(p: string): string {
 function basename(p: string): string {
     const i = p.lastIndexOf('/');
     return i >= 0 ? p.substring(i + 1) : p;
+}
+
+// ---- System library helpers ----
+
+const SYSLIB_ID_PREFIX = '__syslib__';
+
+/**
+ * Extract a clean library name from a linker fragment.
+ *
+ * Handles:
+ *  - Unix `-l<name>` flags:  `-lmosquitto` → `mosquitto`
+ *  - Full paths to shared/static libs: `/usr/lib/libssl.so.3` → `ssl`
+ *  - macOS dylibs: `libcurl.dylib` → `curl`
+ *  - MSVC import libs: `ws2_32.lib` → `ws2_32`
+ *  - Bare DLLs passed as fragments: `mosquitto.dll` → `mosquitto`
+ *  - Windows `.lib` full paths: `C:/libs/mosquitto.lib` → `mosquitto`
+ *
+ * Returns undefined if the fragment doesn't look like a library
+ * (e.g. plain flags, response files, etc.).
+ */
+function parseSystemLibraryName(aFragment: string): string | undefined {
+    const frag = aFragment.trim();
+    if (frag.length === 0) return undefined;
+
+    // -l<name>  (Unix / MinGW)
+    if (frag.startsWith('-l')) {
+        const name = frag.substring(2);
+        return name.length > 0 ? name : undefined;
+    }
+
+    // -framework <name> (macOS) — fragment is "-framework CoreFoundation"
+    const fw_match = frag.match(/^-framework\s+(.+)$/i);
+    if (fw_match) return fw_match[1];
+
+    // Full path or bare filename: extract the basename then strip decorations
+    const base = basename(frag);
+
+    // Must have a recognizable library extension
+    const lib_ext = /\.(so(\.\d+)*|a|dylib|lib|dll)$/i;
+    if (!lib_ext.test(base)) return undefined;
+
+    // Strip extension(s)  — handles .so.1.2.3, .dylib, .lib, .a, .dll
+    let name = base.replace(/\.(so(\.\d+)*|dylib|lib|dll|a)$/i, '');
+
+    // Strip `lib` prefix (common on Unix: libfoo.so → foo)
+    if (name.startsWith('lib') && name.length > 3) {
+        name = name.substring(3);
+    }
+
+    return name.length > 0 ? name : undefined;
+}
+
+/**
+ * Create a synthetic Target for a system library leaf node.
+ */
+function makeSysLibTarget(aId: string, aName: string): Target {
+    return {
+        name: aName,
+        id: aId,
+        type: 'SYSTEM_LIBRARY',
+        paths: { source: '', build: '' },
+        sources: [],
+    };
 }

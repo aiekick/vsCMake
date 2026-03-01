@@ -75,6 +75,7 @@ let focus_visible_ids: Set<string> | null = null; // precomputed set of visible 
 const TARGET_TYPES = [
     'EXECUTABLE', 'STATIC_LIBRARY', 'SHARED_LIBRARY',
     'MODULE_LIBRARY', 'OBJECT_LIBRARY', 'INTERFACE_LIBRARY',
+    'SYSTEM_LIBRARY',
 ];
 
 // Node sizing
@@ -799,7 +800,9 @@ function attachCanvasEvents(aCanvas: HTMLCanvasElement): void {
             if (auto_pause_during_drag && sim_running) {
                 stopSimulation();
             }
-            vscode.postMessage({ type: 'nodeClick', targetId: hit.node.id });
+            if (hit.node.type !== 'SYSTEM_LIBRARY') {
+                vscode.postMessage({ type: 'nodeClick', targetId: hit.node.id });
+            }
         } else {
             is_panning = true;
             pan_start_x = e.clientX;
@@ -1673,11 +1676,11 @@ function buildSettingsHtml(): string {
 
     return `
 <div class="settings-body">
+    ${sectionHtml('controls', 'Controls', controls_content)}
     ${sectionHtml('display', 'Display', display_content)}
     ${sectionHtml('edges', 'Edges', edges_content)}
-    ${buildNodeColorPickersHtml()}
     ${sectionHtml('simulation', 'Force Simulation', sim_content)}
-    ${sectionHtml('controls', 'Controls', controls_content)}
+    ${buildNodeColorPickersHtml()}
 </div>`;
 }
 
