@@ -71,6 +71,9 @@ let provider_defaults: Record<string, any> = {};
 let focused_node_id: string | null = null;
 let focus_history: { nodeId: string; label: string }[] = [];
 let focus_visible_ids: Set<string> | null = null; // precomputed set of visible node ids in focus mode
+let focus_depth = 0;       // current depth limit for focused subgraph
+let focus_max_depth = 0;   // deepest level reachable from focused node
+let focus_node_depths: Map<string, number> | null = null; // nodeId → BFS depth from focused node
 
 const TARGET_TYPES = [
     'EXECUTABLE', 'STATIC_LIBRARY', 'SHARED_LIBRARY',
@@ -855,6 +858,7 @@ function attachCanvasEvents(aCanvas: HTMLCanvasElement): void {
         } else if (!was_panning) {
             selected_node_id = null;
             updateFooter();
+            draw();
         }
         if (is_panning) {
             is_panning = false;
@@ -880,10 +884,16 @@ function attachCanvasEvents(aCanvas: HTMLCanvasElement): void {
                 draw();
                 return;
             }
-            // Focus on the selected node and all recursively connected nodes
-            focusOnNode(selected_node_id);
+            // Ctrl+double-click: open subgraph as fresh root (reset breadcrumb)
+            if (e.ctrlKey || e.metaKey) {
+                exitFocusView();
+                focusOnNode(selected_node_id);
+            } else {
+                // Normal double-click: drill down (append to breadcrumb)
+                focusOnNode(selected_node_id);
+            }
         } else {
-            // Double-click on baCanvaskground: fit graph to view
+            // Double-click on background: fit graph to view
             centerOnNodes();
             draw();
         }
@@ -1268,10 +1278,24 @@ function initSearchBar(): void {
     if (search_bar_inited) { return; }
     search_bar_inited = true;
 
-    // Build the search controls inside the breadcrumb bar
+    // Build the help button + search controls inside the breadcrumb bar
     const bar = document.getElementById('breadcrumb-bar')!;
-    bar.innerHTML = buildSearchControlsHtml();
+    bar.innerHTML = buildHelpButtonHtml() + buildSearchControlsHtml();
     attachSearchEvents();
+}
+
+function buildHelpButtonHtml(): string {
+    const lines = [
+        'Click \u2014 Select node',
+        'Double-click node \u2014 Focus subgraph (drill down)',
+        'Ctrl+Double-click \u2014 Focus subgraph (fresh root)',
+        'Double-click background \u2014 Fit to view',
+        'Scroll \u2014 Zoom',
+        'Drag node \u2014 Move node',
+        'Drag background \u2014 Pan',
+    ];
+    const tip = lines.join('&#10;');
+    return `<button id="help-btn" title="${tip}">?</button>`;
 }
 
 function buildSearchControlsHtml(): string {
@@ -1447,41 +1471,50 @@ function escapeHtml(aS: string): string {
 
 /**
  * BFS from a root node following the current edge direction.
- * Edges: { from: target, to: dependency_it_uses }.
+ * Returns a Map<nodeId, depth> where depth is the BFS distance from root.
  *
+ * Edges: { from: target, to: dependency_it_uses }.
  * - child-to-parent (default): follow from -> to (A uses B, go to B's deps)
  * - parent-to-child: follow to -> from (descend to consumers/children)
  */
-function buildConnectedSubgraph(aRootId: string): Set<string> {
-    const visited = new Set<string>();
-    const queue = [aRootId];
+function buildConnectedSubgraph(aRootId: string): Map<string, number> {
+    const depths = new Map<string, number>();
+    const queue: [string, number][] = [[aRootId, 0]];
 
     // Build directed adjacency based on current edge direction
     const adj = new Map<string, string[]>();
     for (const edge of all_edges) {
         if (edge_direction === GraphEdgeDirection.TARGETS_USED_BY) {
-            // Follow from -> to (dependencies)
             if (!adj.has(edge.from)) { adj.set(edge.from, []); }
             adj.get(edge.from)!.push(edge.to);
         } else {
-            // Follow to -> from (consumers/children)
             if (!adj.has(edge.to)) { adj.set(edge.to, []); }
             adj.get(edge.to)!.push(edge.from);
         }
     }
 
     while (queue.length > 0) {
-        const current = queue.shift()!;
-        if (visited.has(current)) { continue; }
-        visited.add(current);
+        const [current, depth] = queue.shift()!;
+        if (depths.has(current)) { continue; }
+        depths.set(current, depth);
         const neighbors = adj.get(current);
         if (neighbors) {
             for (const nb of neighbors) {
-                if (!visited.has(nb)) { queue.push(nb); }
+                if (!depths.has(nb)) { queue.push([nb, depth + 1]); }
             }
         }
     }
-    return visited;
+    return depths;
+}
+
+/** Rebuild focus_visible_ids from focus_node_depths using focus_depth as threshold. */
+function rebuildFocusVisibleIds(): void {
+    if (!focus_node_depths) { focus_visible_ids = null; return; }
+    const ids = new Set<string>();
+    for (const [id, d] of focus_node_depths) {
+        if (d <= focus_depth) { ids.add(id); }
+    }
+    focus_visible_ids = ids;
 }
 
 /** Shift world origin to a node's position, compensate camera so nothing visually moves. */
@@ -1503,7 +1536,13 @@ function focusOnNode(aNodeId: string): void {
     if (!node) { return; }
 
     // Build the full recursively-connected subgraph from this node
-    focus_visible_ids = buildConnectedSubgraph(aNodeId);
+    focus_node_depths = buildConnectedSubgraph(aNodeId);
+    focus_max_depth = 0;
+    for (const d of focus_node_depths.values()) {
+        if (d > focus_max_depth) { focus_max_depth = d; }
+    }
+    focus_depth = focus_max_depth; // default to max
+    rebuildFocusVisibleIds();
 
     // Shift world origin to the focused node so gravity centers around it.
     shiftOriginToNode(aNodeId);
@@ -1525,6 +1564,9 @@ function exitFocusView(): void {
     focused_node_id = null;
     focus_history = [];
     focus_visible_ids = null;
+    focus_node_depths = null;
+    focus_depth = 0;
+    focus_max_depth = 0;
     updateBreadcrumb();
     restartSimIfEnabled();
     draw();
@@ -1543,21 +1585,66 @@ function navigateBreadcrumb(aIndex: number): void {
     selected_node_id = entry.nodeId;
 
     // Rebuild the connected subgraph from the navigated node
-    focus_visible_ids = buildConnectedSubgraph(entry.nodeId);
+    focus_node_depths = buildConnectedSubgraph(entry.nodeId);
+    focus_max_depth = 0;
+    for (const d of focus_node_depths.values()) {
+        if (d > focus_max_depth) { focus_max_depth = d; }
+    }
+    focus_depth = focus_max_depth;
+    rebuildFocusVisibleIds();
     restartSimIfEnabled();
     updateBreadcrumb();
     updateFooter();
     draw();
 }
 
+function buildDepthControlHtml(): string {
+    const val = focus_depth >= focus_max_depth ? focus_max_depth : focus_depth;
+    return `<div id="depth-control">` +
+        `<button id="depth-dec" title="Decrease depth">\u25C0</button>` +
+        `<input id="depth-input" type="number" min="1" max="${focus_max_depth}" value="${val}" title="Subgraph depth">` +
+        `<button id="depth-inc" title="Increase depth">\u25B6</button>` +
+        `<button id="depth-max" title="Show all depths">Max</button>` +
+        `</div>`;
+}
+
+function attachDepthEvents(): void {
+    const input = document.getElementById('depth-input') as HTMLInputElement | null;
+    const dec_btn = document.getElementById('depth-dec') as HTMLButtonElement | null;
+    const inc_btn = document.getElementById('depth-inc') as HTMLButtonElement | null;
+    const max_btn = document.getElementById('depth-max') as HTMLButtonElement | null;
+    if (!input || !dec_btn || !inc_btn || !max_btn) { return; }
+
+    const applyDepth = (d: number) => {
+        focus_depth = Math.max(1, Math.min(focus_max_depth, d));
+        input.value = String(focus_depth);
+        rebuildFocusVisibleIds();
+        restartSimIfEnabled();
+        draw();
+    };
+
+    dec_btn.addEventListener('click', () => applyDepth(focus_depth - 1));
+    inc_btn.addEventListener('click', () => applyDepth(focus_depth + 1));
+    max_btn.addEventListener('click', () => applyDepth(focus_max_depth));
+    input.addEventListener('change', () => {
+        const v = parseInt(input.value, 10);
+        if (!isNaN(v)) { applyDepth(v); }
+    });
+}
+
 function updateBreadcrumb(): void {
     const bar = document.getElementById('breadcrumb-bar')!;
 
-    // Always rebuild: search controls + breadcrumb items
-    let html = buildSearchControlsHtml();
+    // Always rebuild: help + search controls + breadcrumb items
+    let html = buildHelpButtonHtml() + buildSearchControlsHtml();
 
     if (focused_node_id && focus_history.length > 0) {
+        // Depth control (between search and breadcrumb)
         html += '<span class="breadcrumb-separator">\u2502</span>';
+        html += buildDepthControlHtml();
+        html += '<span class="breadcrumb-separator">\u2502</span>';
+
+        // Breadcrumb navigation
         html += '<span class="breadcrumb-item" data-bc-index="-1">All</span>';
         for (let i = 0; i < focus_history.length; i++) {
             html += '<span class="breadcrumb-separator">\u203A</span>';
@@ -1573,6 +1660,9 @@ function updateBreadcrumb(): void {
 
     // Re-attach search events
     attachSearchEvents();
+
+    // Attach depth control events
+    if (focused_node_id) { attachDepthEvents(); }
 
     // Attach breadcrumb click events
     bar.querySelectorAll('.breadcrumb-item').forEach(el => {
@@ -1736,7 +1826,14 @@ function attachSettingsEvents(): void {
         vscode.postMessage({ type: 'updateSetting', key: 'graphEdgeDirection', value: edge_direction });
         // If in focus mode, rebuild subgraph with new direction
         if (focused_node_id) {
-            focus_visible_ids = buildConnectedSubgraph(focused_node_id);
+            focus_node_depths = buildConnectedSubgraph(focused_node_id);
+            focus_max_depth = 0;
+            for (const d of focus_node_depths.values()) {
+                if (d > focus_max_depth) { focus_max_depth = d; }
+            }
+            focus_depth = Math.min(focus_depth, focus_max_depth);
+            rebuildFocusVisibleIds();
+            updateBreadcrumb();
         }
         restartSimIfEnabled();
         draw();

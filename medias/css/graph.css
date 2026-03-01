@@ -82,6 +82,78 @@ body {
     padding: 1px 3px;
 }
 
+/* ---- Help button ---- */
+
+#help-btn {
+    background: var(--vscode-button-secondaryBackground, var(--vscode-sideBar-background));
+    color: var(--vscode-descriptionForeground);
+    border: 1px solid var(--vscode-panel-border);
+    cursor: help;
+    font-size: 10px;
+    font-weight: bold;
+    padding: 1px 5px;
+    border-radius: 50%;
+    line-height: 16px;
+    min-width: 18px;
+    min-height: 18px;
+    text-align: center;
+    flex-shrink: 0;
+    margin-right: 2px;
+}
+
+#help-btn:hover {
+    color: var(--vscode-editor-foreground);
+    background: var(--vscode-toolbar-hoverBackground);
+}
+
+/* ---- Depth control ---- */
+
+#depth-control {
+    display: flex;
+    align-items: center;
+    gap: 1px;
+    flex-shrink: 0;
+}
+
+#depth-control button {
+    background: var(--vscode-button-secondaryBackground, var(--vscode-sideBar-background));
+    color: var(--vscode-button-secondaryForeground, var(--vscode-editor-foreground));
+    border: 1px solid var(--vscode-panel-border);
+    cursor: pointer;
+    font-size: 8px;
+    padding: 2px 4px;
+    border-radius: 2px;
+    line-height: 16px;
+    min-width: 20px;
+    text-align: center;
+}
+
+#depth-control button:hover {
+    background: var(--vscode-toolbar-hoverBackground);
+}
+
+#depth-max {
+    font-size: 10px !important;
+    font-weight: bold;
+    padding: 2px 5px !important;
+}
+
+#depth-input {
+    background: var(--vscode-input-background);
+    color: var(--vscode-input-foreground);
+    border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+    padding: 2px 4px;
+    font-size: 11px;
+    border-radius: 2px;
+    width: 32px;
+    text-align: center;
+    outline: none;
+}
+
+#depth-input:focus {
+    border-color: var(--vscode-focusBorder);
+}
+
 /* ---- Search bar ---- */
 
 #search-container {
